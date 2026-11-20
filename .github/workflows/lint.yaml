@@ -38,11 +38,13 @@ jobs:
 
       - name: Build kustomizations
         run: |
+          # The separator matters: kustomize output has no trailing ---, so plain
+          # concatenation would weld two documents together.
           mkdir -p /tmp/out
           for d in clusters/homelab system cert-manager metallb network headlamp monitoring; do
-            kubectl kustomize "$d" > "/tmp/out/$(basename "$d").yaml"
+            kubectl kustomize "$d" >> /tmp/out/all.yaml
+            echo '---' >> /tmp/out/all.yaml
           done
-          cat /tmp/out/*.yaml > /tmp/out/all.yaml
 
       - name: kubeconform
         run: |
