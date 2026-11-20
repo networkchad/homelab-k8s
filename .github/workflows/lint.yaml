@@ -1,0 +1,58 @@
+name: lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3"
+      - run: pip install yamllint==1.38.0
+      - run: yamllint .
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # This repo is public: keep credentials out of it.
+      - name: No plaintext Secrets
+        run: |
+          if grep -rEn '^[[:space:]]*kind:[[:space:]]*Secret' --include='*.yaml' .; then
+            echo "::error::plaintext Secret in git - use sops, sealed-secrets or external-secrets"
+            exit 1
+          fi
+
+      - name: Build kustomizations
+        run: |
+          mkdir -p /tmp/out
+          for d in clusters/homelab system cert-manager metallb network headlamp monitoring; do
+            kubectl kustomize "$d" > "/tmp/out/$(basename "$d").yaml"
+          done
+          cat /tmp/out/*.yaml > /tmp/out/all.yaml
+
+      - name: kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz -C /tmp
+          # Flux/Gateway API kinds have no published schema here and are skipped;
+          # the controllers validate them for real at reconcile time.
+          /tmp/kubeconform -strict -summary -ignore-missing-schemas /tmp/out/all.yaml
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color

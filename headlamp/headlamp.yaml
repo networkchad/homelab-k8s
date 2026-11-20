@@ -1,0 +1,33 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  chart:
+    spec:
+      chart: headlamp
+      version: 0.46.0
+      interval: 1h
+      sourceRef:
+        kind: HelmRepository
+        name: headlamp
+  values:
+    config:
+      inCluster: true
+    # Read-only: this dashboard is reachable through the Gateway without any
+    # auth of its own. Bump to cluster-admin only behind real authentication.
+    clusterRoleBinding:
+      clusterRoleName: view
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi

@@ -1,0 +1,13 @@
+# web: home of the Gateway. Namespaces labelled homelab.dev/gateway=web may
+# attach their own Routes to it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx-gateway
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+  labels:
+    homelab.dev/gateway: web

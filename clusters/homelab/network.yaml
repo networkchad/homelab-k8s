@@ -1,0 +1,24 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: network
+  namespace: flux-system
+spec:
+  interval: 30m
+  retryInterval: 2m
+  timeout: 15m
+  pruning: true
+  # Gateway API CRDs, the Certificate kind, and an address to bind.
+  dependsOn:
+    - name: gateway-api
+    - name: cert-manager
+    - name: metallb
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./network
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: nginx-gateway-fabric
+      namespace: nginx-gateway

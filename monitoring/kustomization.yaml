@@ -4,3 +4,4 @@ resources:
   - namespaces.yaml
   - helm-repositories.yaml
   - kube-prometheus-stack.yaml
+  - httproute.yaml

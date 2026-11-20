@@ -1,0 +1,31 @@
+# kubectl top / HPA. kind's kubelet serving certs don't chain to the CA the
+# apiserver is configured with, hence the insecure flag.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metrics-server
+  namespace: metrics-server
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  chart:
+    spec:
+      chart: metrics-server
+      version: 3.14.0
+      interval: 1h
+      sourceRef:
+        kind: HelmRepository
+        name: kubernetes-sigs
+  values:
+    args:
+      - --kubelet-insecure-tls
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi

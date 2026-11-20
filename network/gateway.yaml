@@ -1,0 +1,67 @@
+# One edge for the cluster: :80 redirects, :443 terminates a wildcard cert from
+# the self-signed issuer. Services reach it as <name>.homelab.test once
+# /etc/hosts points that domain at the Gateway's EXTERNAL-IP.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: web-tls
+  namespace: web
+spec:
+  secretName: web-tls
+  commonName: homelab.test
+  dnsNames:
+    - homelab.test
+    - "*.homelab.test"
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: self-signed
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: web
+  namespace: web
+spec:
+  gatewayClassName: nginx
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: homelab.test
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              homelab.dev/gateway: web
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: homelab.test
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: web-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              homelab.dev/gateway: web
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: redirect-to-tls
+  namespace: web
+spec:
+  parentRefs:
+    - name: web
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 308
