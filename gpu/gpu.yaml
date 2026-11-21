@@ -124,8 +124,8 @@ spec:
   ports:
     - {name: http, port: 9835, targetPort: http}
 ---
-# monitoring/ sets serviceMonitorSelector to {} - every ServiceMonitor in the cluster is read,
-# which is why this needs no label for Prometheus to find it.
+# monitoring/ clears the rule that limits Prometheus to monitors carrying its own release label,
+# which is why this one needs no label to be scraped and no knowledge of the release's name.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
