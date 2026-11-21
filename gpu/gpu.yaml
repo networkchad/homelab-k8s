@@ -1,7 +1,6 @@
-# The GPU: one worker advertises nvidia.com/gpu, and a pod that asks for it gets the
-# driver from the CDI spec the host writes at boot - no nvidia container runtime anywhere,
-# because kind gives no way to ask docker for a GPU. See README for why that is the shape
-# it has, and what a pod has to carry for CUDA to find libcuda.
+# The GPU: one worker advertises nvidia.com/gpu and counts what is asked of it, and the driver
+# reaches containers as a mount rather than through a runtime. See README for why it has to be
+# this way on a kind cluster, and what a pod has to carry to use it.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -17,10 +16,15 @@ metadata:
   name: nvidia-device-plugin
   namespace: gpu
 ---
-# The nvidia-device-plugin chart is not used, for one reason: the plugin needs libnvidia-ml
-# before it can count anything, the chart has no value that puts a library path in its own
-# container, and on NixOS the driver is nowhere near a default path. The other 90% of that
-# chart - gfd, mps, mig, nfd - is things this does not need either.
+# Counts the GPU so one can be asked for by name and scheduled. It is only an accountant here:
+# what it hands kubelet for a device is NVIDIA_VISIBLE_DEVICES, a note written for the nvidia
+# runtime that kind cannot give this node, so a CUDA pod gets its device nodes by being
+# privileged instead - README. No CDI strategy is set either, because that mode has the plugin
+# write a CDI spec, which it can only do by finding libcuda.so in an ld.so.cache NixOS does not
+# keep. Counting needs libnvidia-ml, and on NixOS the driver is nowhere near a default library
+# path, hence LD_LIBRARY_PATH and the two mounts; that is also why the nvidia-device-plugin chart
+# is not used, since it has no value that puts a library path in the plugin's own container. Its
+# other halves - gfd, mps, mig, nfd - are unneeded either.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -42,25 +46,19 @@ spec:
           image: nvcr.io/nvidia/k8s-device-plugin:v0.20.1
           command: [nvidia-device-plugin]
           env:
-            # Annotate the pod with the CDI device rather than handing kubelet device
-            # paths, so containerd is the one that injects - the only way a pod gets the
-            # driver here. And the host's spec names its devices 0 and all, so devices
-            # have to be identified by index for the two sides to agree on a name.
-            - {name: DEVICE_LIST_STRATEGY, value: cdi-annotations}
-            - {name: DEVICE_ID_STRATEGY, value: index}
             - {name: LD_LIBRARY_PATH, value: /driver/lib}
           securityContext:
             privileged: true
           volumeMounts:
             - {name: device-plugins, mountPath: /var/lib/kubelet/device-plugins}
-            # The host's spec, mounted into this node by kind, read here so the plugin can
-            # check the devices it found against the devices the node can inject.
-            - {name: cdi, mountPath: /var/run/cdi}
             - {name: driver, mountPath: /driver}
+            # The driver directory is symlinks into the store, so the store has to be here too
+            # for anything in this container to load them.
+            - {name: nix-store, mountPath: /nix/store}
           resources:
             requests: {cpu: 10m, memory: 32Mi}
             limits: {memory: 96Mi}
       volumes:
         - {name: device-plugins, hostPath: {path: /var/lib/kubelet/device-plugins}}
-        - {name: cdi, hostPath: {path: /var/run/cdi}}
-        - {name: driver, hostPath: {path: /run/opengl-driver/lib}}
+        - {name: driver, hostPath: {path: /run/opengl-driver}}
+        - {name: nix-store, hostPath: {path: /nix/store}}
