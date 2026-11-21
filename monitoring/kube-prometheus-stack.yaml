@@ -1,5 +1,7 @@
 # prometheus, alertmanager, grafana. The three stateful pods select the node labelled
 # homelab.internal/stateful because kind's local-path volumes are pinned to one node.
+# Grafana is where the logs from logging/ are read, and Authelia is how anyone who is not
+# the admin gets in.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -50,7 +52,9 @@ spec:
         serviceMonitorSelector: {}
         podMonitorSelector: {}
         ruleSelector: {}
-        retention: 48h
+        # A week of series, and the volume stops making room once it is 80% full.
+        retention: 7d
+        retentionSize: 8GB
         nodeSelector: {homelab.internal/stateful: "true"}
         resources:
           requests: {cpu: 50m, memory: 400Mi}
@@ -75,7 +79,6 @@ spec:
               resources: {requests: {storage: 1Gi}}
 
     grafana:
-      # No adminPassword: this repo is public, so the chart generates one.
       nodeSelector: {homelab.internal/stateful: "true"}
       resources:
         requests: {cpu: 10m, memory: 96Mi}
@@ -83,6 +86,50 @@ spec:
         enabled: true
         accessModes: [ReadWriteOnce]
         size: 1Gi
+      # monitoring/secrets.yaml: the chart takes the admin pair from it, Grafana reads the
+      # OIDC client secret from it as the environment variable its config key names.
+      admin: {existingSecret: grafana}
+      envValueFrom:
+        # The name is the environment variable; Grafana reads a GF_ variable in place of
+        # the config key it is spelled from.
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+          secretKeyRef: {name: grafana, key: oidc-client-secret}
+      grafana.ini:
+        server:
+          # The address the browser is sent to, and so the address the redirect_uri sent
+          # to Authelia has to match.
+          root_url: https://grafana.homelab.internal/
+        auth:
+          # Left on deliberately: with Authelia in front of everything else, this form is
+          # how you get in to find out why Authelia is not.
+          disable_login_form: false
+        # The dotted key is the ini section name, which is why this is not nested: nested,
+        # the chart writes it as one incomprehensible line under [auth].
+        auth.generic_oauth:
+          enabled: true
+          name: Authelia
+          client_id: grafana
+          auth_url: https://auth.homelab.internal/api/oidc/authorization
+          # Browser-facing and server-facing apart, on purpose: Grafana talks to the
+          # Service over the pod network, and nothing in here resolves
+          # auth.homelab.internal. Discovery is off for the same reason, which is why the
+          # three endpoints are spelled out.
+          token_url: http://authelia.authelia.svc.cluster.local:9091/api/oidc/token
+          api_url: http://authelia.authelia.svc.cluster.local:9091/api/oidc/userinfo
+          jwk_set_url: http://authelia.authelia.svc.cluster.local:9091/api/oidc/jwks
+          validate_id_token: true
+          scopes: openid profile email groups offline_access
+          use_refresh_token: true
+          # The groups in auth/users.yaml decide the role; admins are admins everywhere.
+          role_attribute_path: contains(groups[*], 'admins') && 'GrafanaAdmin' || 'Viewer'
+          allow_assign_grafana_admin: true
+      # The logs logging/ keeps, in the UI that is already here.
+      additionalDataSources:
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki.logging.svc.cluster.local:3100
+          jsonData: {maxLines: 1000}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
