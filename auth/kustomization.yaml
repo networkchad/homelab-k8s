@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - authelia.yaml
+  - secrets.yaml
+# The two files Authelia reads, as the ConfigMaps it mounts. The names stay unhashed
+# because a HelmRelease refers to them inside spec.values, where kustomize will not put a
+# generated name: configuration.yaml is only read at startup, so after changing it,
+#   kubectl rollout restart deployment/authelia -n authelia
+# users.yaml needs nothing: Authelia watches that file.
+configMapGenerator:
+  - name: authelia-config
+    files:
+      - configuration.yaml
+  - name: authelia-users
+    files:
+      - users.yaml
+generatorOptions:
+  disableNameSuffixHash: true

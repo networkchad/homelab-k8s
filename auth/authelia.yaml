@@ -1,0 +1,94 @@
+# The identity provider: one sqlite-backed container that signs people in and hands out
+# OIDC tokens. Who exists is auth/users.yaml, what must stay secret is auth/secrets.yaml,
+# how it behaves is auth/configuration.yaml - all of it in git, all of it reconciled.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authelia
+  labels: {homelab.internal/gateway: web}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: authelia
+  namespace: authelia
+spec:
+  interval: 1h
+  url: https://charts.authelia.com
+---
+# The chart installs and upgrades Authelia; its own config stays in configuration.yaml
+# because the chart's values schema predates 4.39 and cannot express the session cookie
+# field 4.39 requires. Both files it reads are mounted from git, so nothing is stored by
+# the chart and nothing secret is in these values.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: authelia
+  namespace: authelia
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: authelia
+      version: 0.11.22
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: authelia}
+  values:
+    configMap: {existingConfigMap: authelia-config}
+    # The chart insists on generating its own keys and ignores secret.disabled when it
+    # does it, so point it at ours: the only keys in the namespace are then the ones from
+    # git, and the pod mounts /secrets from auth/secrets.yaml alone.
+    secret: {disabled: true, existingSecret: authelia-keys}
+    persistence: {enabled: true}
+    service: {port: 9091}
+    # One pod, and it recreates rather than rolls: sqlite is on a ReadWriteOnce volume, so
+    # the new pod cannot start while the old one holds it.
+    pod:
+      kind: Deployment
+      strategy: {type: Recreate}
+      selectors: {nodeSelector: {homelab.internal/stateful: "true"}}
+      env:
+        # Authelia reads a *_FILE variable in place of the matching config key, which is
+        # how the keys get in without ever being written down.
+        - {name: AUTHELIA_SESSION_SECRET_FILE, value: /secrets/session.encryption.key}
+        - {name: AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE, value: /secrets/storage.encryption.key}
+        - {name: AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE, value: /secrets/identity_providers.oidc.hmac.key}
+      extraVolumes:
+        # Both configMap names below are replaced with the hashed name of the ConfigMap
+        # kustomize builds from the files in this directory (see kustomization.yaml).
+        - {name: users, configMap: {name: authelia-users}}
+        - {name: keys, secret: {secretName: authelia-keys}}
+      extraVolumeMounts:
+        - {name: users, mountPath: /users, readOnly: true}
+        - {name: keys, mountPath: /secrets, readOnly: true}
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
+        limits: {memory: 192Mi}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: authelia
+  namespace: authelia
+spec:
+  parentRefs: [{kind: Gateway, name: web, namespace: web, sectionName: https}]
+  hostnames: [auth.homelab.internal]
+  rules:
+    - backendRefs: [{name: authelia, port: 9091}]
+---
+# headlamp's SecurityPolicy points Envoy at a Service in this namespace, and a
+# cross-namespace backendRef is refused without a grant here. Both kinds are listed: the
+# check is made against the route the policy is attached to, which is not itself a
+# Gateway API kind.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: headlamp
+  namespace: authelia
+spec:
+  from:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: headlamp}
+    - {group: gateway.envoyproxy.io, kind: SecurityPolicy, namespace: headlamp}
+  to: [{group: "", kind: Service, name: authelia}]

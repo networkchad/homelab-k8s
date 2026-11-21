@@ -1,0 +1,12 @@
+# The one account, in git as an argon2 hash - the password itself is not in git anywhere.
+# Add someone by appending a block here with a hash from
+#   docker run --rm authelia/authelia:4.39.24 authelia crypto hash generate argon2 \
+#     --password "$(openssl rand -base64 24 | tr -d '=+/')" --no-confirm
+# Groups are what Grafana roles and access_control rules are derived from. Authelia watches
+# this file, so a change here needs no restart.
+users:
+  anon:
+    displayname: anon
+    email: anon@homelab.internal
+    groups: [admins]
+    password: '$argon2id$v=19$m=65536,t=3,p=4$cnGyxp/O81jz8zekH8fNhw$dyb3tGtc6h63aVjzHV5cKQAtaXOCtt/vuVeGnyuFzAU'

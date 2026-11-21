@@ -1,0 +1,21 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: auth
+  namespace: flux-system
+spec:
+  interval: 30m
+  retryInterval: 2m
+  timeout: 15m
+  prune: true
+  wait: true
+  dependsOn:
+    - name: gateway
+  # The one secret here is sops ciphertext; see README.
+  decryption:
+    provider: sops
+    secretRef: {name: sops-age}
+  sourceRef: {kind: GitRepository, name: flux-system}
+  path: ./auth
+  healthChecks:
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: authelia, namespace: authelia}
