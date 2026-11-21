@@ -1,7 +1,7 @@
 # homelab-k8s
 
-GitOps for the `homelab` kind cluster on a NixOS host. Five commands bootstrap it; flux
-owns everything after that.
+GitOps for the `homelab` kind cluster. Five commands bootstrap it; flux owns
+everything after that.
 
 ## Bootstrap
 
@@ -13,12 +13,12 @@ kubectl create secret generic sops-age -n flux-system --from-file=age.agekey=$HO
 kubectl apply --server-side -f clusters/homelab/flux-system/gotk-sync.yaml
 ```
 
-The host has to forward traffic between the node containers, which NixOS's firewall refuses
-by default and docker's rules cannot override: `virtualisation.docker.enable = true;`,
-`boot.kernelModules = [ "br_netfilter" "overlay" ];`, and
-`networking.firewall.forwardChainConfig = "accept";` (plus
-`networking.nftables.forwardChainConfig = "accept";` if nftables is on). Get this wrong and
-pods on some nodes never reach CoreDNS, so flux never clones the repo.
+The host has to pass traffic between the node containers: forwarding on, `br_netfilter` and
+`overlay` loaded (a running docker daemon arranges both), and nothing in between the nodes
+dropping or misrouting what the nodes send each other. Firewalls are the usual culprit and
+the easy case, because they fail loudly; routing is quieter. Both checks are one command and
+both fail in ways that look like a broken cluster rather than a broken host - see *Worth
+knowing* for the one this cluster currently fails.
 
 That `install.yaml` is the full bundle - seven controllers, including the image automation
 ones `flux install` skips. `flux bootstrap github` works too; the repo is public, so HTTPS
@@ -195,6 +195,24 @@ and deleting a claim deletes the data.
   person is asking, which is what `extAuth` answers. It also keeps the secret count at one.
 
 ## Worth knowing
+
+- **Cross-node pod traffic does not work on this cluster yet, and the cause is still open** -
+  worth knowing before reading a failed bootstrap as a failed manifest. A pod on a worker
+  cannot reach CoreDNS on the control-plane; pod-to-node and node-to-node are fine. Verified
+  innocent: the host's `FORWARD` chain (`-P FORWARD ACCEPT`, docker accepts its own bridge),
+  the nodes' own forwarding rules, kind's masquerade (it returns for `10.244.0.0/16`), and
+  layer 2 - a worker resolves a peer node's address to that node's own MAC, so frames are
+  bridged rather than routed by the host. Unusual about this cluster: kindnet is in
+  native-route mode (no `cni0` anywhere, `/32` routes to local pods, `/24` via the peer
+  nodes), which leans on the network under the nodes instead of carrying its own overlay.
+  Counters say the packets never arrive at the peer; capture there next. To reproduce:
+
+  ```sh
+  kubectl -n kube-system run dnscheck --image=docker.io/library/busybox:1.36 --restart=Never \
+    --overrides='{"spec":{"nodeName":"homelab-worker"}}' --command -- \
+    nslookup kubernetes.default.svc.cluster.local
+  kubectl -n kube-system logs dnscheck && kubectl -n kube-system delete pod dnscheck
+  ```
 
 - Renaming or merging an area makes flux prune the old Kustomization, and pruning
   garbage-collects the HelmReleases it created - so a running release can be uninstalled
