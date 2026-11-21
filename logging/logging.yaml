@@ -101,6 +101,10 @@ spec:
   values:
     testFramework: {enabled: false}
     rbac: {nodeAccess: true}
+    # kind's control plane is tainted NoSchedule, so without this the agent skips the only
+    # node where etcd, the apiserver and CoreDNS write logs.
+    tolerations:
+      - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
     resources:
       requests: {cpu: 10m, memory: 32Mi}
       limits: {memory: 96Mi}
