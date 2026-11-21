@@ -188,8 +188,8 @@ pod restarts, rollouts and reboots; they do not survive `kind delete cluster`.
 
 - Not every CRD is upgraded by bumping a chart: cert-manager and MetalLB ship theirs as templates,
   but Envoy Gateway, kube-prometheus-stack, Loki and Authelia put theirs in `crds/`, which Helm
-  applies once. Apply the new ones by hand, or set `crds.upgradeJob.enabled: true` on
-  kube-prometheus-stack.
+  applies once. kube-prometheus-stack re-applies its own through the `crds.upgradeJob` hook; the
+  other three are a `kubectl apply --server-side` at the bump.
 - A chart's values schema rejects a field it has never heard of; a CRD schema does not - the API
   server prunes unknown fields, so a typo in a `SecurityPolicy` is silently a policy without that
   block. CI renders the charts; reading the Gateway API docs after a bump is on you.

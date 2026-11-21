@@ -45,6 +45,14 @@ spec:
         kubeSchedulerRecording: false
         kubeControllerManager: false
 
+    # Helm creates the chart's crds/ once and never upgrades them; this job re-applies them as a
+    # pre-upgrade hook. Both images default to :latest or the cluster version - pinned here, as
+    # everywhere else.
+    crds:
+      upgradeJob:
+        enabled: true
+        image: {busybox: {tag: "1.37"}, kubectl: {tag: v1.35.0}}
+
     prometheus:
       prometheusSpec:
         # Otherwise only monitors carrying this release's labels are selected, and
