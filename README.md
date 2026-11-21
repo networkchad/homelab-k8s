@@ -9,7 +9,7 @@ owns everything after that.
 kind create cluster --config kind/cluster.yaml
 kubectl config use-context kind-homelab
 kubectl create -f https://github.com/fluxcd/flux2/releases/download/v2.10.1/install.yaml
-kubectl create secret generic sops-age -n flux-system --from-file=age.agekey=~/.config/sops/age/keys.txt
+kubectl create secret generic sops-age -n flux-system --from-file=age.agekey=$HOME/.config/sops/age/keys.txt
 kubectl apply --server-side -f clusters/homelab/flux-system/gotk-sync.yaml
 ```
 
@@ -26,7 +26,10 @@ needs no deploy key.
 
 The `sops-age` secret is the one thing flux is not told through git, because it is the key
 that unlocks what is in git: without it the two areas that carry secrets stall with a
-decryption error and everything else comes up normally.
+decryption error and everything else comes up normally. The key's name inside the secret has
+to end in `.agekey` - that is how kustomize-controller recognises an age key. `$HOME` and not
+`~` above is also not style: bash does not expand a tilde that follows an `=`, so kubectl goes
+looking for a file literally named `~/.config/...`.
 
 ## Secrets
 
