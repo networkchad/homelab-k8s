@@ -1,0 +1,105 @@
+# The front door: who signs certificates, which addresses a LoadBalancer may take,
+# and the one Gateway in front of everything.
+#
+# Nothing here shares a directory with the HelmRelease that installs its CRD:
+# kustomize dry-runs every document before helm-controller has run, so those would
+# fail on a cold cluster and land only on a retry. gateway/ waits for platform/.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+  labels:
+    # Namespaces carrying this label may attach Routes to the Gateway below.
+    # Envoy Gateway runs the data plane in envoy-gateway-system, so web holds only
+    # the Gateway and its certificate.
+    homelab.internal/gateway: web
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# Trusts nothing by default: import the certs it issues into your client. Swap for
+# an ACME DNS01 issuer once a real domain and its credentials exist outside git.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: self-signed
+spec:
+  selfSigned: {}
+---
+# kind's bridge subnet: docker network inspect kind -f '{{(index .IPAM.Config 0).Subnet}}'
+# Keep it clear of docker's own allocation so nodes can't take these addresses.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: homelab
+  namespace: metallb-system
+spec:
+  addresses: [172.18.0.240-172.18.0.250]
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: homelab
+  namespace: metallb-system
+spec:
+  ipAddressPools: [homelab]
+---
+# The chart creates no GatewayClass; this does.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: web-tls
+  namespace: web
+spec:
+  secretName: web-tls
+  commonName: homelab.internal
+  dnsNames: [homelab.internal, "*.homelab.internal"]
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: self-signed}
+---
+# Listeners carry no hostname on purpose: a listener hostname matches only that
+# exact host, so homelab.internal would never serve grafana.homelab.internal.
+# Routing by host is the HTTPRoutes' job, in each app's own namespace.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: web
+  namespace: web
+spec:
+  gatewayClassName: envoy
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {homelab.internal/gateway: web}}
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs: [{name: web-tls}]
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {homelab.internal/gateway: web}}
+---
+# Matches every host on :80, so it has to be the only route on that listener.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: redirect-to-tls
+  namespace: web
+spec:
+  parentRefs: [{name: web, sectionName: http}]
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: {scheme: https, statusCode: 308}

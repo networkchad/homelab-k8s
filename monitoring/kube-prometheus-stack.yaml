@@ -1,3 +1,20 @@
+# prometheus, alertmanager, grafana. The three stateful pods select the node labelled
+# homelab.internal/stateful because kind's local-path volumes are pinned to one node.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels: {homelab.internal/gateway: web}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+  namespace: monitoring
+spec:
+  interval: 1h
+  url: https://prometheus-community.github.io/helm-charts
+---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -6,29 +23,20 @@ metadata:
 spec:
   interval: 30m
   maxHistory: 3
-  install:
-    remediation:
-      retries: 3
-  upgrade:
-    remediation:
-      retries: 3
+  install: {remediation: {retries: 3}}
+  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: kube-prometheus-stack
       version: 93.6.0
       interval: 1h
-      sourceRef:
-        kind: HelmRepository
-        name: prometheus-community
+      sourceRef: {kind: HelmRepository, name: prometheus-community}
   values:
-    # etcd, scheduler and controller-manager bind 127.0.0.1 inside kind nodes, so
+    # etcd, scheduler and controller-manager bind 127.0.0.1 inside kind nodes, so the
     # pod network can never reach them: off, along with their alert rules.
-    kubeEtcd:
-      enabled: false
-    kubeScheduler:
-      enabled: false
-    kubeControllerManager:
-      enabled: false
+    kubeEtcd: {enabled: false}
+    kubeScheduler: {enabled: false}
+    kubeControllerManager: {enabled: false}
     defaultRules:
       rules:
         etcd: false
@@ -38,57 +46,53 @@ spec:
 
     prometheus:
       prometheusSpec:
-        # Otherwise Prometheus only selects monitors carrying this release's
-        # labels, and every future app's ServiceMonitor is silently ignored.
+        # Otherwise only monitors carrying this release's labels are selected, and
+        # every later app's ServiceMonitor is silently ignored.
         serviceMonitorSelector: {}
         podMonitorSelector: {}
         ruleSelector: {}
         retention: 48h
-        # kind's local-path provisioner pins a volume to the node it was created
-        # on, so a pod that moves is unschedulable, not migrated. Land the three
-        # stateful pods on the node that holds their data, always.
-        nodeSelector:
-          homelab.dev/stateful: "true"
+        nodeSelector: {homelab.internal/stateful: "true"}
         resources:
-          requests:
-            cpu: 50m
-            memory: 400Mi
-        # Default is emptyDir: series vanish on every pod restart.
-        # storageClassName left unset on purpose, so the cluster default applies.
+          requests: {cpu: 50m, memory: 400Mi}
+        # Default is emptyDir: series vanish on every pod restart. storageClassName
+        # stays unset so the cluster default applies.
         storageSpec:
           volumeClaimTemplate:
             spec:
               accessModes: [ReadWriteOnce]
-              resources:
-                requests:
-                  storage: 10Gi
+              resources: {requests: {storage: 10Gi}}
 
     alertmanager:
       alertmanagerSpec:
         retention: 48h
-        nodeSelector:
-          homelab.dev/stateful: "true"
+        nodeSelector: {homelab.internal/stateful: "true"}
         resources:
-          requests:
-            cpu: 10m
-            memory: 64Mi
+          requests: {cpu: 10m, memory: 64Mi}
         storage:
           volumeClaimTemplate:
             spec:
               accessModes: [ReadWriteOnce]
-              resources:
-                requests:
-                  storage: 1Gi
+              resources: {requests: {storage: 1Gi}}
 
     grafana:
-      # No adminPassword here: this repo is public. The chart generates one.
-      nodeSelector:
-        homelab.dev/stateful: "true"
+      # No adminPassword: this repo is public, so the chart generates one.
+      nodeSelector: {homelab.internal/stateful: "true"}
       resources:
-        requests:
-          cpu: 10m
-          memory: 96Mi
+        requests: {cpu: 10m, memory: 96Mi}
       persistence:
         enabled: true
         accessModes: [ReadWriteOnce]
         size: 1Gi
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  parentRefs: [{kind: Gateway, name: web, namespace: web, sectionName: https}]
+  hostnames: [grafana.homelab.internal]
+  rules:
+    # The chart prefixes services with the release name.
+    - backendRefs: [{name: kube-prometheus-stack-grafana, port: 80}]

@@ -1,9 +1,0 @@
-# Control plane. The web namespace, where this Gateway's data plane lands, is
-# in edge/.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: envoy-gateway-system
-  labels:
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted

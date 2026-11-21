@@ -1,0 +1,98 @@
+# Four releases, same shape: pin the chart version, ask for little, retry three times.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metrics-server
+  namespace: metrics-server
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  upgrade: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: metrics-server
+      version: 3.14.0
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: kubernetes-sigs}
+  values:
+    # kind's kubelet serving certs don't chain to the CA the apiserver trusts.
+    args: [--kubelet-insecure-tls]
+    resources:
+      requests: {cpu: 10m, memory: 64Mi}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  upgrade: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: cert-manager
+      version: v1.21.3
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: jetstack}
+  values:
+    # installCRDs is the deprecated alias for this.
+    crds: {enabled: true}
+    replicaCount: 1
+    resources:
+      requests: {cpu: 10m, memory: 64Mi}
+---
+# Layer 2 only: no FRR, so no BGP daemonset.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  upgrade: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: metallb
+      version: 0.16.2
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: metallb}
+  values:
+    frrk8s: {enabled: false}
+    speaker: {frr: {enabled: false}}
+    controller:
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
+---
+# Control plane only: the data plane arrives with the Gateway in gateway/. The
+# bundled crds/ directory installs the Gateway API bundle (v1.6.1) and Envoy
+# Gateway's own; Helm never upgrades a CRD, so bump those by hand with this chart.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  upgrade: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: gateway-helm
+      version: v1.10.0
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: envoy-gateway}
+  values:
+    deployment:
+      envoyGateway:
+        # Chart default asks for 100m CPU; one box does not need that.
+        resources:
+          requests: {cpu: 10m, memory: 128Mi}
+    # Zone-aware routing between containers on one host: no. Also installs a
+    # mutating webhook in front of every data plane pod.
+    topologyInjector: {enabled: false}

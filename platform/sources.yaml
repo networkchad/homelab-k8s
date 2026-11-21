@@ -1,0 +1,39 @@
+# One chart source per release, in that release's namespace. Envoy Gateway publishes
+# only an OCI artifact, hence type: oci - url is the registry namespace, the chart
+# name is the repository and the version is a tag.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: kubernetes-sigs
+  namespace: metrics-server
+spec:
+  interval: 1h
+  url: https://kubernetes-sigs.github.io/metrics-server/
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jetstack
+  namespace: cert-manager
+spec:
+  interval: 1h
+  url: https://charts.jetstack.io
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 1h
+  url: https://metallb.github.io/metallb
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway-system
+spec:
+  type: oci
+  interval: 1h
+  url: oci://docker.io/envoyproxy

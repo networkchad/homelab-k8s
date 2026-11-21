@@ -1,3 +1,20 @@
+# Cluster dashboard, reachable through the Gateway with no auth of its own, so the
+# chart's cluster role binding is pinned to view.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: headlamp
+  labels: {homelab.internal/gateway: web}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 1h
+  url: https://kubernetes-sigs.github.io/headlamp/
+---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -6,28 +23,27 @@ metadata:
 spec:
   interval: 30m
   maxHistory: 3
-  install:
-    remediation:
-      retries: 3
-  upgrade:
-    remediation:
-      retries: 3
+  install: {remediation: {retries: 3}}
+  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: headlamp
       version: 0.46.0
       interval: 1h
-      sourceRef:
-        kind: HelmRepository
-        name: headlamp
+      sourceRef: {kind: HelmRepository, name: headlamp}
   values:
-    config:
-      inCluster: true
-    # Read-only: this dashboard is reachable through the Gateway without any
-    # auth of its own. Bump to cluster-admin only behind real authentication.
-    clusterRoleBinding:
-      clusterRoleName: view
+    config: {inCluster: true}
+    clusterRoleBinding: {clusterRoleName: view}
     resources:
-      requests:
-        cpu: 10m
-        memory: 64Mi
+      requests: {cpu: 10m, memory: 64Mi}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  parentRefs: [{kind: Gateway, name: web, namespace: web, sectionName: https}]
+  hostnames: [headlamp.homelab.internal]
+  rules:
+    - backendRefs: [{name: headlamp, port: 80}]

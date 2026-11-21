@@ -1,11 +1,11 @@
+# One Kustomization per directory of the repo: each directory owns its namespaces,
+# chart sources and releases, and each file here says where it lives, what it waits
+# for and how to tell it is healthy. New area = one directory + one file.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - flux-system/gotk-sync.yaml
-  - system.yaml
-  - cert-manager.yaml
-  - metallb.yaml
-  - network.yaml
-  - edge.yaml
+  - platform.yaml
+  - gateway.yaml
   - headlamp.yaml
   - monitoring.yaml

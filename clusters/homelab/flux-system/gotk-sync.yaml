@@ -1,5 +1,7 @@
-# Self-reference: flux reconciles this repo, starting at clusters/homelab.
-# Applied by hand exactly once (README); every later change arrives via git.
+# Self-reference: flux reconciles this repo, starting at clusters/homelab. Applied by
+# hand exactly once (README); every later change arrives through git.
+# Public repo, so no secretRef. If it goes private, use the ssh url plus a
+# secretRef named flux-system.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
@@ -7,11 +9,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
-  ref:
-    branch: main
-  # Public repo, so no secretRef. If it ever goes private:
-  #   url: ssh://git@github.com/networkchad/homelab-k8s.git
-  #   secretRef: { name: flux-system }
+  ref: {branch: main}
   url: https://github.com/networkchad/homelab-k8s.git
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -25,7 +23,5 @@ spec:
   timeout: 5m
   prune: true
   wait: true
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
+  sourceRef: {kind: GitRepository, name: flux-system}
   path: ./clusters/homelab

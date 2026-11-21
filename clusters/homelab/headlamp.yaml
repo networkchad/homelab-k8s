@@ -8,14 +8,10 @@ spec:
   retryInterval: 2m
   timeout: 10m
   prune: true
+  # Its HTTPRoute needs the Gateway API CRDs and the web Gateway.
   dependsOn:
-    - name: edge
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
+    - name: gateway
+  sourceRef: {kind: GitRepository, name: flux-system}
   path: ./headlamp
   healthChecks:
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      name: headlamp
-      namespace: headlamp
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: headlamp, namespace: headlamp}

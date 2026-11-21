@@ -1,0 +1,8 @@
+# Charts everything else reads CRDs from. Each release owns its namespace and its
+# CRDs; none reads a CRD another installs, so all four install in parallel.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - sources.yaml
+  - releases.yaml
