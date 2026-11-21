@@ -32,16 +32,14 @@ public, so HTTPS needs no deploy key.
 | `headlamp/` | cluster dashboard, read-only |
 | `monitoring/` | prometheus, alertmanager, grafana, and their PVCs |
 
-`clusters/homelab/` is flux wiring; every other directory is area content owning its
-namespace, chart sources and releases. Adding an area means one directory plus one file
-there.
+`clusters/homelab/` is flux wiring; every other directory is an area that owns its
+namespaces, chart sources and releases.
 
-One rule shapes the layout: a custom resource never shares a directory with the
-HelmRelease that installs its CRD. kustomize-controller dry-runs every document before
-helm-controller has run, so such a document fails on a cold cluster and only lands on a
-retry minutes later. `gateway/` exists for that reason - its Certificate, address pool,
-GatewayClass and Gateway need CRDs `platform/` installs, and get them through `dependsOn`
-instead of a race.
+One rule shapes the layout: a custom resource never shares a directory with the chart
+that installs its CRD, because kustomize-controller dry-runs every document before
+helm-controller has run — on a cold cluster such a document fails and only lands on a
+later retry. `gateway/` exists for that reason: its Certificate, address pool,
+GatewayClass and Gateway get `platform/`'s CRDs through `dependsOn` instead of a race.
 
 CI builds every area and checks every document against the CRD schemas of the controllers
 that read it, plus yamllint, actionlint and a guard against plaintext Secrets in a public
@@ -58,6 +56,10 @@ The `EXTERNAL-IP` comes from MetalLB. Point `/etc/hosts` at it:
 ```
 172.18.0.240 homelab.internal headlamp.homelab.internal grafana.homelab.internal
 ```
+
+`homelab.internal` is private-use space: it is not delegated, so nothing on the public
+internet can answer for it, and ICANN has reserved `.internal` from new-TLD delegation so
+nobody can take it later. Only `.local` would be a mistake - that one is mDNS.
 
 - `https://headlamp.homelab.internal` — token: `kubectl -n headlamp create token headlamp`
 - `https://grafana.homelab.internal` — `admin`, password from:
@@ -104,6 +106,10 @@ cluster`, and deleting a claim deletes the data.
 
 ## Worth knowing
 
+- Renaming or merging an area makes flux prune the old Kustomization, and pruning
+  garbage-collects the HelmReleases it created - so a running release can be uninstalled
+  while the new area re-adopts it. Expect churn on the commit that moves things: that is
+  the one change better made on an empty cluster.
 - Public repo, so no secrets in git: CI fails on a plaintext `kind: Secret`. The Grafana
   admin password is chart-generated and lives in a Secret; once a secrets backend exists,
   point `grafana.existingSecret` at something real rather than reading it back out.

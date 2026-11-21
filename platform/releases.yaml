@@ -1,4 +1,6 @@
-# Four releases, same shape: pin the chart version, ask for little, retry three times.
+# Four releases, same shape: pinned chart, small requests, and an install that retries
+# while an upgrade does not - a failed first install is usually a cold cluster still
+# coming up, a failed upgrade is a bad version you should look at.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -8,12 +10,10 @@ spec:
   interval: 30m
   maxHistory: 3
   install: {remediation: {retries: 3}}
-  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: metrics-server
       version: 3.14.0
-      interval: 1h
       sourceRef: {kind: HelmRepository, name: kubernetes-sigs}
   values:
     # kind's kubelet serving certs don't chain to the CA the apiserver trusts.
@@ -30,17 +30,14 @@ spec:
   interval: 30m
   maxHistory: 3
   install: {remediation: {retries: 3}}
-  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: cert-manager
       version: v1.21.3
-      interval: 1h
       sourceRef: {kind: HelmRepository, name: jetstack}
   values:
     # installCRDs is the deprecated alias for this.
     crds: {enabled: true}
-    replicaCount: 1
     resources:
       requests: {cpu: 10m, memory: 64Mi}
 ---
@@ -54,12 +51,10 @@ spec:
   interval: 30m
   maxHistory: 3
   install: {remediation: {retries: 3}}
-  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: metallb
       version: 0.16.2
-      interval: 1h
       sourceRef: {kind: HelmRepository, name: metallb}
   values:
     frrk8s: {enabled: false}
@@ -80,12 +75,10 @@ spec:
   interval: 30m
   maxHistory: 3
   install: {remediation: {retries: 3}}
-  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: gateway-helm
       version: v1.10.0
-      interval: 1h
       sourceRef: {kind: HelmRepository, name: envoy-gateway}
   values:
     deployment:

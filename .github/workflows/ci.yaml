@@ -42,23 +42,21 @@ jobs:
             exit 1
           fi
 
-      # Builds every area, then checks every document against the schemas of the
-      # controllers that read it. flux's release ships CRD schemas generated with
+      # Builds every area, then validates every document against the schema of the
+      # controller that reads it. flux's released CRD schemas are generated with
       # additionalProperties: false, so a field flux has never heard of fails here
-      # instead of being pruned quietly at bootstrap - spec.pruning, when the field
-      # is spec.prune, turns garbage collection off without a sound. The CRDs-catalog
-      # covers the kinds the charts install (a CRD schema states types and required
-      # fields, not "no other fields", so those catch less); core kinds come from
-      # kubeconform's own registry.
+      # instead of being dropped at bootstrap. A CRD schema says which fields are
+      # required, not that no others are allowed, so the CRDs-catalog catches less for
+      # the kinds the charts install; core kinds come from kubeconform's registry.
       - name: Build and validate
         run: |
-          mkdir -p .tools && cd .tools
-          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz
-          curl -sSfL "https://github.com/fluxcd/flux2/releases/download/$FLUX_VERSION/crd-schemas.tar.gz" | tar xz
-          cd ..
+          t="$RUNNER_TEMP/tools"
+          mkdir -p "$t"
+          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz -C "$t"
+          curl -sSfL "https://github.com/fluxcd/flux2/releases/download/$FLUX_VERSION/crd-schemas.tar.gz" | tar xz -C "$t"
           find . -name kustomization.yaml -printf '%h\n' | sort -u |
-            while read -r dir; do kubectl kustomize "$dir"; echo '---'; done >all.yaml
-          ./.tools/kubeconform -strict -summary -ignore-missing-schemas \
-            -schema-location '.tools/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
+            while read -r dir; do kubectl kustomize "$dir"; echo '---'; done >"$t/all.yaml"
+          "$t/kubeconform" -strict -summary -ignore-missing-schemas \
+            -schema-location "$t/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-            -schema-location default all.yaml
+            -schema-location default "$t/all.yaml"

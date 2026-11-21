@@ -1,6 +1,7 @@
-# One Kustomization per directory of the repo: each directory owns its namespaces,
-# chart sources and releases, and each file here says where it lives, what it waits
-# for and how to tell it is healthy. New area = one directory + one file.
+# One file per area directory: where it lives, what it waits for, how to tell it is
+# healthy. platform/ first, because its charts install the CRDs gateway/ declares
+# objects for, and gateway/ before the apps, because their routes need a Gateway that
+# serves. New area = one directory plus one file here.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

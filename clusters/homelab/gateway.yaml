@@ -1,6 +1,4 @@
-# Applies only once every CRD it reads exists, and reports ready only once the
-# certificate is issued and the data plane has its address, so the areas behind it
-# never deploy against a Gateway that cannot serve.
+# wait: ready then means the certificate is issued and the data plane has its address.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:

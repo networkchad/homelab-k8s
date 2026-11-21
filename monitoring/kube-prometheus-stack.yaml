@@ -24,7 +24,6 @@ spec:
   interval: 30m
   maxHistory: 3
   install: {remediation: {retries: 3}}
-  upgrade: {remediation: {retries: 3}}
   chart:
     spec:
       chart: kube-prometheus-stack

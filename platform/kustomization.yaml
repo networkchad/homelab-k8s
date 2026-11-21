@@ -1,5 +1,5 @@
-# Charts everything else reads CRDs from. Each release owns its namespace and its
-# CRDs; none reads a CRD another installs, so all four install in parallel.
+# The four base charts. None of them reads a CRD another installs, so all four go at
+# once and clusters/homelab/platform.yaml waits on them as one unit.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

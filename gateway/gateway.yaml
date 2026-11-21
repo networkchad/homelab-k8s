@@ -1,9 +1,6 @@
-# The front door: who signs certificates, which addresses a LoadBalancer may take,
-# and the one Gateway in front of everything.
-#
-# Nothing here shares a directory with the HelmRelease that installs its CRD:
-# kustomize dry-runs every document before helm-controller has run, so those would
-# fail on a cold cluster and land only on a retry. gateway/ waits for platform/.
+# The front door: issuer, LoadBalancer pool, GatewayClass, Gateway and its redirect.
+# Nothing here shares a directory with the chart that installs its CRD - see README -
+# so this area waits on platform/ instead of racing it.
 apiVersion: v1
 kind: Namespace
 metadata:

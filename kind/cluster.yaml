@@ -7,7 +7,6 @@ name: homelab
 networking:
   # Nothing off this host needs the api server.
   apiServerAddress: 127.0.0.1
-  apiServerPort: 6443
   # ipvs would need ip_vs* host modules; none leaves Service networking to the CNI.
   kubeProxyMode: iptables
 
@@ -21,8 +20,8 @@ nodes:
   - role: worker
     image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
     labels:
-      # kind's StorageClass is local-path: a volume is a directory on one node and
-      # the PV is pinned to it, so stateful pods select this node. See README.
+      # kind's only StorageClass is local-path: a volume is a directory on one node and
+      # its PV is pinned there. See README.
       homelab.internal/stateful: "true"
 
   - role: worker

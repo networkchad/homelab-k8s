@@ -8,7 +8,6 @@ spec:
   retryInterval: 2m
   timeout: 10m
   prune: true
-  # Its HTTPRoute needs the Gateway API CRDs and the web Gateway.
   dependsOn:
     - name: gateway
   sourceRef: {kind: GitRepository, name: flux-system}
