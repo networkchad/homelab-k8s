@@ -14,11 +14,11 @@ kubectl apply --server-side -f clusters/homelab/flux-system/gotk-sync.yaml
 ```
 
 The host has to pass traffic between the node containers: forwarding on, `br_netfilter` and
-`overlay` loaded (a running docker daemon arranges both), and nothing in between the nodes
-dropping or misrouting what the nodes send each other. Firewalls are the usual culprit and
-the easy case, because they fail loudly; routing is quieter. Both checks are one command and
-both fail in ways that look like a broken cluster rather than a broken host - see *Worth
-knowing* for the one this cluster currently fails.
+`overlay` loaded (a running docker daemon arranges both), and nothing between the nodes
+dropping what they send each other. The quiet one is reverse-path filtering: pod traffic is
+sourced from the pod CIDR, which the host has no route to, so a host that refuses packets whose
+source it cannot route back to drops that traffic and nothing else - which looks like a broken
+cluster rather than a broken host. See *Worth knowing*.
 
 That `install.yaml` is the full bundle - seven controllers, including the image automation
 ones `flux install` skips. `flux bootstrap github` works too; the repo is public, so HTTPS
@@ -196,23 +196,26 @@ and deleting a claim deletes the data.
 
 ## Worth knowing
 
-- **Cross-node pod traffic does not work on this cluster yet, and the cause is still open** -
-  worth knowing before reading a failed bootstrap as a failed manifest. A pod on a worker
-  cannot reach CoreDNS on the control-plane; pod-to-node and node-to-node are fine. Verified
-  innocent: the host's `FORWARD` chain (`-P FORWARD ACCEPT`, docker accepts its own bridge),
-  the nodes' own forwarding rules, kind's masquerade (it returns for `10.244.0.0/16`), and
-  layer 2 - a worker resolves a peer node's address to that node's own MAC, so frames are
-  bridged rather than routed by the host. Unusual about this cluster: kindnet is in
-  native-route mode (no `cni0` anywhere, `/32` routes to local pods, `/24` via the peer
-  nodes), which leans on the network under the nodes instead of carrying its own overlay.
-  Counters say the packets never arrive at the peer; capture there next. To reproduce:
+- **Reverse-path filtering on the host drops cross-node pod traffic, and looks like a broken
+  cluster** - this cluster's first bootstrap stalled as a DNS timeout in flux. A pod on a
+  worker reaches CoreDNS on the control-plane with a pod-CIDR source address; the host has no
+  route to the pod CIDR, so a host that refuses packets it cannot route back to kills exactly
+  that traffic. Pod-to-node and node-to-node are sourced from addresses the host does route, so
+  everything else stays healthy, and `iptables -L FORWARD` looks clean because the drop is in
+  `mangle PREROUTING`. Read every table, not just `filter`, and check the counters while a probe
+  is in flight - a catch-all `DROP` that climbs is the culprit:
 
   ```sh
-  kubectl -n kube-system run dnscheck --image=docker.io/library/busybox:1.36 --restart=Never \
+  kubectl run dnscheck --image=docker.io/library/busybox:1.36 --restart=Never \
     --overrides='{"spec":{"nodeName":"homelab-worker"}}' --command -- \
     nslookup kubernetes.default.svc.cluster.local
-  kubectl -n kube-system logs dnscheck && kubectl -n kube-system delete pod dnscheck
+  kubectl logs dnscheck && kubectl delete pod dnscheck    # "no servers could be reached"
   ```
+
+  Fix it on the host, not in git: relax the test to loose, which still refuses sources that are
+  unroutable altogether. NixOS `networking.firewall.checkReversePath = "loose";`, otherwise
+  `net.ipv4.conf.all.rp_filter = 2` or the firewall's equivalent. Adding host routes for the pod
+  CIDRs works too and goes stale the moment kind picks a different range.
 
 - Renaming or merging an area makes flux prune the old Kustomization, and pruning
   garbage-collects the HelmReleases it created - so a running release can be uninstalled
