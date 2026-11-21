@@ -1,0 +1,66 @@
+# The GPU: one worker advertises nvidia.com/gpu, and a pod that asks for it gets the
+# driver from the CDI spec the host writes at boot - no nvidia container runtime anywhere,
+# because kind gives no way to ask docker for a GPU. See README for why that is the shape
+# it has, and what a pod has to carry for CUDA to find libcuda.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nvidia-device-plugin
+  namespace: gpu
+---
+# The nvidia-device-plugin chart is not used, for one reason: the plugin needs libnvidia-ml
+# before it can count anything, the chart has no value that puts a library path in its own
+# container, and on NixOS the driver is nowhere near a default path. The other 90% of that
+# chart - gfd, mps, mig, nfd - is things this does not need either.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin
+  namespace: gpu
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: nvidia-device-plugin}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: nvidia-device-plugin}
+    spec:
+      serviceAccountName: nvidia-device-plugin
+      # Only one node has the GPU mounted in: kind/cluster.yaml.
+      nodeSelector: {homelab.internal/gpu: "true"}
+      containers:
+        - name: plugin
+          # appVersion of nvidia-device-plugin chart 0.20.2.
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.20.1
+          command: [nvidia-device-plugin]
+          env:
+            # Annotate the pod with the CDI device rather than handing kubelet device
+            # paths, so containerd is the one that injects - the only way a pod gets the
+            # driver here. And the host's spec names its devices 0 and all, so devices
+            # have to be identified by index for the two sides to agree on a name.
+            - {name: DEVICE_LIST_STRATEGY, value: cdi-annotations}
+            - {name: DEVICE_ID_STRATEGY, value: index}
+            - {name: LD_LIBRARY_PATH, value: /driver/lib}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - {name: device-plugins, mountPath: /var/lib/kubelet/device-plugins}
+            # The host's spec, mounted into this node by kind, read here so the plugin can
+            # check the devices it found against the devices the node can inject.
+            - {name: cdi, mountPath: /var/run/cdi}
+            - {name: driver, mountPath: /driver}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 96Mi}
+      volumes:
+        - {name: device-plugins, hostPath: {path: /var/lib/kubelet/device-plugins}}
+        - {name: cdi, hostPath: {path: /var/run/cdi}}
+        - {name: driver, hostPath: {path: /run/opengl-driver/lib}}

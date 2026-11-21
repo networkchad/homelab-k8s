@@ -13,3 +13,4 @@ resources:
   - logging.yaml
   - headlamp.yaml
   - monitoring.yaml
+  - gpu.yaml
