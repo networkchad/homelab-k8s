@@ -1,8 +1,12 @@
 extends: default
 
 # GitHub's yaml, not this repo's: on: is a truthy key and its run: blocks are long.
+# The sops files are formatted by sops, not by anyone here, and its ciphertext is one long
+# line per value by design.
 ignore: |
   .github/workflows/*.yaml
+  auth/secrets.yaml
+  monitoring/secrets.yaml
 
 rules:
   document-start: disable
