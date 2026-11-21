@@ -2,8 +2,8 @@
 # so `sops --encrypt --in-place monitoring/secrets.yaml` needs no key argument, and the
 # recipient here is the only one that can decrypt anything committed.
 #
-# Public key of ~/.config/sops/age/keys.txt, the private half of which lives on the host
-# that runs `flux bootstrap` and is committed to nothing:
+# Public key of ~/.config/sops/age/keys.txt, the private half of which lives on the host that
+# bootstraps the cluster and is committed to nothing (the README's *The age key* makes one):
 #
 #   age1aqwcvjxkxptny4qqnl2xq9m4dw4p3dhdcq6k7sz4wz7y4z5rdsuqxzle3r
 #
