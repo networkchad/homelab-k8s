@@ -1,0 +1,136 @@
+# Logs: fluent-bit on every node tails the container logs, Loki stores seven days of
+# them, and they are read in the Grafana that monitoring/ already runs. No extra UI.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: logging
+spec:
+  interval: 1h
+  url: https://grafana.github.io/helm-charts
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: fluent
+  namespace: logging
+spec:
+  interval: 1h
+  url: https://fluent.github.io/helm-charts
+---
+# One process holding ingester, querier and compactor, with the chunks on a volume.
+# Retention is the one value below that matters: the compactor deletes blocks older than
+# it, so the volume stops at roughly seven days of logs instead of growing forever.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: logging
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: loki
+      version: 7.7.0
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: grafana, namespace: logging}
+  values:
+    deploymentMode: SingleBinary
+    loki:
+      auth_enabled: false
+      commonConfig: {replication_factor: 1}
+      storage:
+        type: filesystem
+        bucketNames: {chunks: chunks, ruler: ruler, admin: admin}
+      # Loki needs to know how its own chunks are laid out on disk. The date is quoted
+      # because an unquoted one is a YAML date: it arrives at Loki as a timestamp, which is
+      # not a shape its schema config accepts.
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index: {prefix: loki_index_, period: 24h}
+      structuredConfig:
+        compactor: {retention_enabled: true, delete_request_store: filesystem}
+        limits_config: {retention_period: 168h, ingestion_rate_mb: 4, ingestion_burst_size_mb: 8}
+    # The single binary serves the API itself: the chart's nginx gateway, canary,
+    # memcached and test pod are all things this does not need.
+    gateway: {enabled: false}
+    lokiCanary: {enabled: false}
+    test: {enabled: false}
+    resultsCache: {enabled: false}
+    chunksCache: {enabled: false}
+    singleBinary:
+      replicas: 1
+      persistence: {size: 10Gi, storageClass: standard}
+      nodeSelector: {homelab.internal/stateful: "true"}
+      resources:
+        requests: {cpu: 50m, memory: 256Mi}
+        limits: {memory: 768Mi}
+    backend: {replicas: 0}
+    read: {replicas: 0}
+    write: {replicas: 0}
+---
+# Tails /var/log/containers on every node - a DaemonSet has no business being pinned to
+# one node - and pushes what it finds to Loki in this namespace. Labels are what logs are
+# found by, so the namespace and the app name go there; the rest stays in the line.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: fluent-bit
+  namespace: logging
+spec:
+  interval: 30m
+  maxHistory: 3
+  install: {remediation: {retries: 3}}
+  chart:
+    spec:
+      chart: fluent-bit
+      version: 0.58.3
+      interval: 1h
+      sourceRef: {kind: HelmRepository, name: fluent, namespace: logging}
+  values:
+    testFramework: {enabled: false}
+    rbac: {nodeAccess: true}
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 96Mi}
+    # The chart takes these as the literal sections of fluent-bit.conf.
+    config:
+      inputs: |
+        [INPUT]
+            Name              tail
+            Path              /var/log/containers/*.log
+            Parser            cri
+            Tag               kube.*
+            Refresh_Interval  5
+            Mem_Buf_Limit     10MB
+            Skip_Long_Lines   On
+      filters: |
+        [FILTER]
+            Name                kubernetes
+            Match               kube.*
+            Merge_Log           On
+            Keep_Log            Off
+            K8s-Logging.Parser  On
+            K8s-Logging.Exclude On
+      outputs: |
+        [OUTPUT]
+            Name          loki
+            Match         kube.*
+            Host          loki.logging.svc.cluster.local
+            Port          3100
+            TenantID      homelab
+            Labels        app=fluent-bit
+            Label_Keys    $kubernetes['namespace_name'], $kubernetes['labels']['app.kubernetes.io/name']
+            Remove_Keys   kubernetes
+            Line_Format   json
