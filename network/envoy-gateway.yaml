@@ -18,8 +18,11 @@ spec:
       retries: 3
   chart:
     spec:
-      chartRef:
-        kind: OCIRepository
+      chart: gateway-helm
+      version: v1.10.0
+      interval: 1h
+      sourceRef:
+        kind: HelmRepository
         name: envoy-gateway
   values:
     deployment:

@@ -14,10 +14,12 @@ KUBECONFORM=${KUBECONFORM:-kubeconform}
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out=${TMPDIR:-/tmp}/homelab-validate.$$
 trap 'rm -rf "$out"' EXIT
-mkdir -p "$out/values" "$out/schemas"
+mkdir -p "$out/values" "$out/schemas" "$out/flux-schemas"
 
-# q: yq emits a --- for every document a filter dropped; shells hate that.
-q() { "$YQ" -r "$1" "$2" | grep -v '^---$' || true; }
+# q: one query over a multi-doc stream. yq answers documents the filter dropped
+# with nothing at all, or a bare ---, and either would poison a [ "$x" = y ]
+# test, so both go.
+q() { "$YQ" -r "$1" "$2" | grep -vE '^(---)?[[:space:]]*$' || true; }
 
 # Areas come from the flux wiring, so this list cannot drift from it.
 kubectl kustomize "$root/clusters/homelab" >"$out/wiring.yaml"
@@ -32,28 +34,30 @@ for d in $areas; do
   cat "$built" >>"$out/all.yaml"
   echo '---' >>"$out/all.yaml"
 
-  q 'select(.kind == "HelmRepository") | .metadata.name + " " + .spec.url' "$built" |
+  q 'select(.kind == "HelmRepository" and .spec.type != "oci") | .metadata.name + " " + .spec.url' "$built" |
     while read -r name url; do helm repo add "$name" "$url" >/dev/null; done
 
   for name in $(q 'select(.kind == "HelmRelease") | .metadata.name' "$built"); do
     sel='select(.kind == "HelmRelease" and .metadata.name == "'"$name"'")'
-    chart=$(q "$sel | .spec.chart.spec.chart // \"\"" "$built")
-    if [ -n "$chart" ]; then
-      ref=$(q "$sel | .spec.chart.spec.sourceRef.name + \"/\" + .spec.chart.spec.chart" "$built")
-      version=$(q "$sel | .spec.chart.spec.version" "$built")
-    else # chartRef -> the tag the OCIRepository pins is the chart version
-      src=$(q "$sel | .spec.chart.spec.chartRef.name" "$built")
-      oci='select(.kind == "OCIRepository" and .metadata.name == "'"$src"'")'
-      ref=$(q "$oci | .spec.url" "$built")
-      version=$(q "$oci | .spec.ref.tag" "$built")
+    ns=$(q "$sel | .metadata.namespace" "$built")
+    src=$(q "$sel | .spec.chart.spec.sourceRef.name" "$built")
+    chart=$(q "$sel | .spec.chart.spec.chart" "$built")
+    version=$(q "$sel | .spec.chart.spec.version" "$built")
+    hs='select(.kind == "HelmRepository" and .metadata.name == "'"$src"'")'
+    url=$(q "$hs | .spec.url" "$built")
+    if [ "$(q "$hs | .spec.type // \"\"" "$built")" = oci ]; then
+      ref=$url/$chart # helm has no notion of an oci "repository"
+    else
+      ref=$src/$chart
     fi
+
     values=$out/values/$name.yaml
     # Exactly one document matches, so the --- separators yq leaves behind for the
     # dropped ones are noise; helm would read the first of them as the values file.
     "$YQ" -o=yaml "$sel | .spec.values" "$built" | grep -v '^---$' >"$values" || :
     [ -s "$values" ] || echo '{}' >"$values"
 
-    if helm template "$name" "$ref" --version "$version" --namespace monitoring \
+    if helm template "$name" "$ref" --version "$version" --namespace "$ns" \
       --values "$values" >"$out/$name.out" 2>"$out/$name.err"; then
       printf 'render  %-22s %-44s %3s docs\n' "$name" "$ref@$version" "$(grep -c '^kind: ' "$out/$name.out")"
     else
@@ -64,10 +68,22 @@ for d in $areas; do
   done
 done
 
-# Structural checks for hand-written manifests. Schemas come out of the CRDs the
-# cluster actually gets: flux's own install, the CRDs the charts render, and the
-# Gateway API bundle Envoy Gateway v1.10.0 installs. A field the CRD does not have
-# fails here instead of at reconcile time.
+# Shape checks, most accurate source first.
+#
+# 1. The schemas flux ships with its release are generated from its own CRDs with
+#    additionalProperties: false, so a field flux has never heard of fails here.
+#    That matters: the api server prunes or rejects unknown fields, and a field
+#    that is quietly dropped (spec.pruning instead of spec.prune) turns garbage
+#    collection off without a sound.
+curl -sSfL -o "$out/flux-schemas.tgz" \
+  "https://github.com/fluxcd/flux2/releases/download/$FLUX_VERSION/crd-schemas.tar.gz"
+tar xzf "$out/flux-schemas.tgz" -C "$out/flux-schemas"
+
+# 2. For other kinds, take the CRDs the cluster actually gets - the ones the charts
+#    render plus the Gateway API bundle Envoy Gateway installs. These check types
+#    and required fields; they cannot flag unknown fields, because a CRD schema
+#    does not say "no other fields", and kubeconform's -strict only reads what the
+#    schema states. The api server is still the real test.
 gen_schemas() { # $1 = file holding CustomResourceDefinition documents
   f=$1
   for crd in $(q 'select(.kind == "CustomResourceDefinition") | .metadata.name' "$f"); do
@@ -82,21 +98,14 @@ gen_schemas() { # $1 = file holding CustomResourceDefinition documents
     done
   done
 }
-
-[ -n "${FLUX_MANIFESTS:-}" ] || {
-  FLUX_MANIFESTS=$out/flux-install.yaml
-  curl -sSfL -o "$FLUX_MANIFESTS" \
-    "https://github.com/fluxcd/flux2/releases/download/$FLUX_VERSION/install.yaml"
-}
-gen_schemas "$FLUX_MANIFESTS"
-
 for chart_out in "$out"/*.out; do gen_schemas "$chart_out"; done
-
 curl -sSfL -o "$out/gateway-api.yaml" \
   "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml"
 gen_schemas "$out/gateway-api.yaml"
 
+# 3. Core kinds from kubeconform's own registry, which does publish -strict schemas.
 # kubeconform's -schema-location is a template, not a directory.
 "$KUBECONFORM" -strict -summary -ignore-missing-schemas \
+  -schema-location "$out/flux-schemas/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
   -schema-location "$out/schemas/{{ .Group }}-{{ .ResourceKind }}-{{ .ResourceAPIVersion }}.json" \
   -schema-location default "$out/all.yaml"
