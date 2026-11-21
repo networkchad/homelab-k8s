@@ -21,16 +21,20 @@ nodes:
   - role: control-plane
     # Pinned by digest: kind requires it for prebuilt node images.
     # 1.35+ needs cgroup v2 on the host.
+    # No 80/443 extraPortMappings: the edge is a MetalLB IP on the kind bridge,
+    # reachable from the host directly. See network/ and README.
     image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
     labels:
       topology.kubernetes.io/zone: local-a
-    # No 80/443 mappings: the edge is a MetalLB IP on the kind bridge, reachable
-    # from the host directly. See network/ and README.
 
   - role: worker
     image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
     labels:
       topology.kubernetes.io/zone: local-a
+      # kind's storage class is local-path: volumes live in a directory on one
+      # node and the PV is pinned to it. Stateful pods select this node so they
+      # never end up Pending next to a volume they cannot reach.
+      homelab.dev/stateful: "true"
 
   - role: worker
     image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f

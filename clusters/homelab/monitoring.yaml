@@ -9,7 +9,7 @@ spec:
   interval: 30m
   retryInterval: 2m
   timeout: 15m
-  pruning: true
+  prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system

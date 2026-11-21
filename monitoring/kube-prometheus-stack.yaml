@@ -44,6 +44,11 @@ spec:
         podMonitorSelector: {}
         ruleSelector: {}
         retention: 48h
+        # kind's local-path provisioner pins a volume to the node it was created
+        # on, so a pod that moves is unschedulable, not migrated. Land the three
+        # stateful pods on the node that holds their data, always.
+        nodeSelector:
+          homelab.dev/stateful: "true"
         resources:
           requests:
             cpu: 50m
@@ -61,6 +66,8 @@ spec:
     alertmanager:
       alertmanagerSpec:
         retention: 48h
+        nodeSelector:
+          homelab.dev/stateful: "true"
         resources:
           requests:
             cpu: 10m
@@ -75,6 +82,8 @@ spec:
 
     grafana:
       # No adminPassword here: this repo is public. The chart generates one.
+      nodeSelector:
+        homelab.dev/stateful: "true"
       resources:
         requests:
           cpu: 10m

@@ -3,5 +3,5 @@ kind: Kustomization
 resources:
   - namespaces.yaml
   - sources.yaml
-  - nginx-gateway-fabric.yaml
+  - envoy-gateway.yaml
   - gateway.yaml

@@ -1,6 +1,13 @@
-# One edge for the cluster: :80 redirects, :443 terminates a wildcard cert from
-# the self-signed issuer. Services reach it as <name>.homelab.test once
-# /etc/hosts points that domain at the Gateway's EXTERNAL-IP.
+# One edge for the cluster. Listeners deliberately carry no hostname: a listener
+# hostname matches only that exact host, so homelab.test would never serve
+# grafana.homelab.test. Routing by host is the HTTPRoutes' job.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -23,12 +30,11 @@ metadata:
   name: web
   namespace: web
 spec:
-  gatewayClassName: nginx
+  gatewayClassName: envoy
   listeners:
     - name: http
       port: 80
       protocol: HTTP
-      hostname: homelab.test
       allowedRoutes:
         namespaces:
           from: Selector
@@ -38,7 +44,6 @@ spec:
     - name: https
       port: 443
       protocol: HTTPS
-      hostname: homelab.test
       tls:
         mode: Terminate
         certificateRefs:
@@ -50,6 +55,7 @@ spec:
             matchLabels:
               homelab.dev/gateway: web
 ---
+# Matches every host on :80, so it has to be the only route on that listener.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

@@ -7,10 +7,10 @@ spec:
   interval: 30m
   retryInterval: 2m
   timeout: 15m
-  pruning: true
-  # Gateway API CRDs, the Certificate kind, and an address to bind.
+  prune: true
+  # The Certificate kind, and an address for the data plane to bind. Gateway API
+  # CRDs come with the chart, so nothing to wait for beyond those two.
   dependsOn:
-    - name: gateway-api
     - name: cert-manager
     - name: metallb
   sourceRef:
@@ -20,5 +20,5 @@ spec:
   healthChecks:
     - apiVersion: helm.toolkit.fluxcd.io/v2
       kind: HelmRelease
-      name: nginx-gateway-fabric
-      namespace: nginx-gateway
+      name: envoy-gateway
+      namespace: envoy-gateway-system

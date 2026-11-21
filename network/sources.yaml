@@ -1,9 +1,12 @@
+# Envoy Gateway publishes its chart as an OCI artifact on Docker Hub and has no
+# helm index; OCIRepository is flux's native way to consume one.
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+kind: OCIRepository
 metadata:
-  name: nginx-charts
-  namespace: nginx-gateway
+  name: envoy-gateway
+  namespace: envoy-gateway-system
 spec:
-  type: oci
   interval: 1h
-  url: oci://ghcr.io/nginx/charts
+  url: oci://docker.io/envoyproxy/gateway-helm
+  ref:
+    tag: v1.10.0
