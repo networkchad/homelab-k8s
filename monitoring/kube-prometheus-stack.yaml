@@ -86,43 +86,16 @@ spec:
         enabled: true
         accessModes: [ReadWriteOnce]
         size: 1Gi
-      # monitoring/secrets.yaml: the chart takes the admin pair from it, Grafana reads the
-      # OIDC client secret from it as the environment variable its config key names.
+      # monitoring/secrets.yaml: the chart takes the admin pair from it.
       admin: {existingSecret: grafana}
-      envValueFrom:
-        # The name is the environment variable; Grafana reads a GF_ variable in place of
-        # the config key it is spelled from.
-        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
-          secretKeyRef: {name: grafana, key: oidc-client-secret}
       grafana.ini:
         server:
-          # The address the browser is sent to, and so the address the redirect_uri sent
-          # to Authelia has to match.
+          # The address the browser is sent to.
           root_url: https://grafana.homelab.internal/
         auth:
           # Left on deliberately: with Authelia in front of everything else, this form is
           # how you get in to find out why Authelia is not.
           disable_login_form: false
-        # The dotted key is the ini section name, which is why this is not nested: nested,
-        # the chart writes it as one incomprehensible line under [auth].
-        auth.generic_oauth:
-          enabled: true
-          name: Authelia
-          client_id: grafana
-          auth_url: https://auth.homelab.internal/api/oidc/authorization
-          # Browser-facing and server-facing apart, on purpose: Grafana talks to the
-          # Service over the pod network, and nothing in here resolves
-          # auth.homelab.internal. Discovery is off for the same reason, which is why the
-          # three endpoints are spelled out.
-          token_url: http://authelia.authelia.svc.cluster.local:9091/api/oidc/token
-          api_url: http://authelia.authelia.svc.cluster.local:9091/api/oidc/userinfo
-          jwk_set_url: http://authelia.authelia.svc.cluster.local:9091/api/oidc/jwks
-          validate_id_token: true
-          scopes: openid profile email groups offline_access
-          use_refresh_token: true
-          # The groups in auth/users.yaml decide the role; admins are admins everywhere.
-          role_attribute_path: contains(groups[*], 'admins') && 'GrafanaAdmin' || 'Viewer'
-          allow_assign_grafana_admin: true
       # The logs logging/ keeps, in the UI that is already here.
       additionalDataSources:
         - name: Loki
@@ -142,3 +115,24 @@ spec:
   rules:
     # The chart prefixes services with the release name.
     - backendRefs: [{name: kube-prometheus-stack-grafana, port: 80}]
+---
+# The same gate Headlamp has: the Gateway asks Authelia on every request whether the
+# browser carries a session, and sends it to Authelia when it does not. Grafana then asks
+# for its own password, because that is the only way it knows how to authorise a dashboard.
+# extAuth is the whole story here - no client, no callback, no secret.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  targetRefs: [{group: gateway.networking.k8s.io, kind: HTTPRoute, name: grafana}]
+  extAuth:
+    failOpen: false
+    # What Authelia reads to decide: the session, and the URL the session is being spent
+    # on. It works that out from the forwarded protocol and the host, so those two have to
+    # arrive or every check is a denial.
+    headersToExtAuth: [Authorization, Cookie, X-Forwarded-Proto, X-Forwarded-Host]
+    http:
+      backendRefs: [{name: authelia, namespace: authelia, port: 9091}]
+      pathOverride: /api/authz/ext-authz

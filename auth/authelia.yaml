@@ -1,6 +1,6 @@
-# The identity provider: one sqlite-backed container that signs people in and hands out
-# OIDC tokens. Who exists is auth/users.yaml, what must stay secret is auth/secrets.yaml,
-# how it behaves is auth/configuration.yaml - all of it in git, all of it reconciled.
+# The gate: one sqlite-backed container that signs people in and answers Envoy's
+# authorisation checks. Who exists is auth/users.yaml, what must stay secret is
+# auth/secrets.yaml, how it behaves is auth/configuration.yaml - all in git, all reconciled.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -54,9 +54,8 @@ spec:
         # how the keys get in without ever being written down.
         - {name: AUTHELIA_SESSION_SECRET_FILE, value: /secrets/session.encryption.key}
         - {name: AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE, value: /secrets/storage.encryption.key}
-        - {name: AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE, value: /secrets/identity_providers.oidc.hmac.key}
       extraVolumes:
-        # Both configMap names below are replaced with the hashed name of the ConfigMap
+        # The configMap name below is replaced with the hashed name of the ConfigMap
         # kustomize builds from the files in this directory (see kustomization.yaml).
         - {name: users, configMap: {name: authelia-users}}
         - {name: keys, secret: {secretName: authelia-keys}}
@@ -78,7 +77,7 @@ spec:
   rules:
     - backendRefs: [{name: authelia, port: 9091}]
 ---
-# headlamp's SecurityPolicy points Envoy at a Service in this namespace, and a
+# Each guarded app's SecurityPolicy points Envoy at a Service in this namespace, and a
 # cross-namespace backendRef is refused without a grant here. Both kinds are listed: the
 # check is made against the route the policy is attached to, which is not itself a
 # Gateway API kind.
@@ -91,4 +90,15 @@ spec:
   from:
     - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: headlamp}
     - {group: gateway.envoyproxy.io, kind: SecurityPolicy, namespace: headlamp}
+  to: [{group: "", kind: Service, name: authelia}]
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: grafana
+  namespace: authelia
+spec:
+  from:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: monitoring}
+    - {group: gateway.envoyproxy.io, kind: SecurityPolicy, namespace: monitoring}
   to: [{group: "", kind: Service, name: authelia}]

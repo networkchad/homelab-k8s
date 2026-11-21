@@ -11,7 +11,7 @@ spec:
   dependsOn:
     - name: gateway
     - name: auth
-  # The grafana admin password and OIDC secret are sops ciphertext; see README.
+  # The grafana admin password is sops ciphertext; see README.
   decryption:
     provider: sops
     secretRef: {name: sops-age}

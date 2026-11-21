@@ -1,14 +1,14 @@
 # Authelia's own config, which the chart cannot express: its values schema predates 4.39
 # and has no session.cookies[].authelia_url, which 4.39 requires. So the ConfigMap comes
-# from this file, and CI runs the real binary over it. The three keys that must stay
+# from this file, and CI runs the real binary over it. The two keys that must stay
 # secret arrive as files under /secrets (auth/secrets.yaml); this file holds hashes only.
 server:
   address: tcp://0.0.0.0:9091
   endpoints:
     authz:
-      # What Envoy Gateway's extAuth calls (see headlamp/). The name below is the path, so
-      # this answers on /api/authz/ext-authz in the protocol Envoy speaks, and decides
-      # from the real request host which rule and which login URL apply.
+      # What Envoy Gateway's extAuth calls (see headlamp/ and monitoring/). The name below
+      # is the path, so this answers on /api/authz/ext-authz in the protocol Envoy speaks,
+      # and decides from the real request host which rule and which login URL apply.
       ext-authz:
         implementation: ExtAuthz
         authn_strategies: [{name: HeaderProxyAuthorization}, {name: CookieSession}]
@@ -29,7 +29,7 @@ access_control:
   # any client.
   default_policy: one_factor
   rules:
-    # The IdP itself, or nothing could reach it to log in.
+    # The gate itself, or nothing could reach it to log in.
     - {domain: auth.homelab.internal, policy: bypass}
 
 session:
@@ -42,28 +42,3 @@ totp: {issuer: homelab.internal}
 
 # The chart's PVC, mounted at /config.
 storage: {local: {path: /config/db.sqlite3}}
-
-identity_providers:
-  oidc:
-    # Signed with the key in auth/secrets.yaml: the chart starts Authelia with
-    # X_AUTHELIA_CONFIG_FILTERS=template, so this line reads that key off disk at startup
-    # and no private key is ever in git. Clients fetch the public half from
-    # /.well-known/openid-configuration, so nothing has to trust it in advance.
-    # yamllint disable rule:braces
-    jwks:
-      - key: {{ secret "/secrets/oidc.signing.key" | mindent 10 "|" }}
-    # yamllint enable rule:braces
-    clients:
-      # The only OIDC client, because Grafana is the only app that does its own login:
-      # sessions and roles stay its own, and its token and userinfo calls go to the
-      # service address over plain http, because nothing in this cluster resolves
-      # auth.homelab.internal - and none needs to. Anything else is guarded by the
-      # ext-authz endpoint above and so needs no client here at all.
-      - client_id: grafana
-        client_name: Grafana
-        authorization_policy: one_factor
-        grant_types: [authorization_code, refresh_token]
-        response_types: [code]
-        redirect_uris: [https://grafana.homelab.internal/login/generic_oauth]
-        scopes: [openid, profile, email, groups, offline_access]
-        client_secret: '$argon2id$v=19$m=65536,t=3,p=4$jicE98SybCNCUteavhEKig$zOH3Hec3zK/U6amD7t8yuABbaVg2qCulSo+TM7N29sI'  # yamllint disable-line rule:line-length

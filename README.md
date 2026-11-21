@@ -59,7 +59,7 @@ loop to keep two copies of each secret in step.
 | --- | --- |
 | `platform/` | metrics-server, cert-manager, MetalLB, Envoy Gateway |
 | `gateway/` | self-signed issuer, MetalLB pool, one `web` Gateway: :80 → :443, wildcard cert |
-| `auth/` | Authelia: the one place a password is typed, and the OIDC provider |
+| `auth/` | Authelia: the one place a password is typed, and the gate in front of the rest |
 | `logging/` | fluent-bit on every node, Loki holding a week of what it finds |
 | `headlamp/` | cluster dashboard, read-only, behind Authelia |
 | `monitoring/` | prometheus, alertmanager, grafana, and their PVCs |
@@ -75,7 +75,7 @@ Gateway get `platform/`'s CRDs through `dependsOn` instead of a race.
 
 CI builds every area, renders every chart with the values committed for it, checks every
 document against the CRD schemas of the controllers that read it, runs Authelia's own
-`config validate` over the IdP config, and adds yamllint, actionlint and a check that no
+`config validate` over Authelia's own config, and adds yamllint, actionlint and a check that no
 Secret holds anything but ciphertext.
 
 ## Reaching it
@@ -95,13 +95,13 @@ internet can answer for it, and ICANN has reserved `.internal` from new-TLD dele
 nobody can take it later. Only `.local` would be a mistake - that one is mDNS.
 
 - `https://auth.homelab.internal` — `anon`, whose password is in the notes made when the
-  secrets were generated and in nothing else: only its argon2 hash is in git. Sign in once
-  and the other two follow.
+  secrets were generated and in nothing else: only its argon2 hash is in git.
 - `https://headlamp.homelab.internal` — the Gateway asks Authelia on every request; Headlamp
   itself shows the cluster through its own read-only service account.
-- `https://grafana.homelab.internal` — *Sign in with Authelia*, or `admin` and the password
-  in `monitoring/secrets.yaml`. The form is left on deliberately: it is how you get in to
-  find out why Authelia is not.
+- `https://grafana.homelab.internal` — past the same Authelia gate, then Grafana's own
+  `admin` and the password in `monitoring/secrets.yaml`. Two passwords for Grafana is the
+  cost of not running an identity provider; what it buys is that Grafana works while
+  Authelia does not, which is when you need it.
 
 Prometheus and Alertmanager get no route on purpose: `kubectl port-forward` them.
 Certificates are self-signed, so import the `web-tls` secret's CA or click through.
@@ -126,11 +126,10 @@ restart - unlike `auth/configuration.yaml`, which is only read at startup:
 kubectl rollout restart deployment/authelia -n authelia
 ```
 
-Groups are what policy is written against, so `admins` in that file is also what makes you a
-Grafana admin (`role_attribute_path` in `monitoring/kube-prometheus-stack.yaml`) and what an
-`access_control` rule would match on later. One factor is required everywhere; TOTP
-enrolment is offered from the first sign-in, and a rule per host can raise the bar to two
-without touching any client.
+Groups are what policy is written against, so `admins` in that file is what an
+`access_control` rule matches on: one factor is required everywhere, TOTP enrolment is
+offered from the first sign-in, and a rule per host can raise the bar to two without
+touching any client. Grafana's own admin is the `admin-user` in its Secret, not a group.
 
 ## Retention and storage
 
@@ -148,7 +147,7 @@ claims, and that is all the state there is:
 | `alertmanager-…-alertmanager-db-…` | 1Gi | the silence list |
 | `kube-prometheus-stack-grafana` | 1Gi | dashboards and datasources made in the UI |
 | `loki-data-loki-0` | 10Gi | ≤7d of logs |
-| `authelia` | 100Mi | sessions, and the OIDC consent records |
+| `authelia` | 100Mi | sessions, TOTP and passkey enrolments |
 
 Everything else rebuilds itself: cert-manager keeps certificates in Secrets, Envoy Gateway
 derives its data plane from the Gateway and HTTPRoutes, headlamp and Loki hold nothing else,
@@ -181,18 +180,23 @@ and deleting a claim deletes the data.
   exists, and the logs end up in the Grafana that is already running rather than in a second
   UI to log in to.
 - **Authelia, not Keycloak.** One stateless-ish container with a sqlite file, against a JVM
-  and a postgres it needs in order to say hello. What is asked of the IdP here is one
-  password, TOTP, and OIDC for Grafana, and Authelia does all three; the admin UI, realm
-  export and protocol breadth that justify Keycloak buy nothing here. It also answers in the
-  protocol Envoy's ext_authz speaks, which is what puts Headlamp behind it without a client.
+  and a postgres it needs in order to say hello. What is asked of it here is one password,
+  TOTP and an answer to "is this request from someone who has logged in", and Authelia does
+  all three; the admin UI, realm export and protocol breadth that justify Keycloak buy
+  nothing here.
 - **Envoy Gateway stays.** It was already the ingress, and `SecurityPolicy` has `oidc`,
   `extAuth`, `jwt` and `authorization` in it, so nothing had to be added to get a login in
   front of a route.
-- **extAuth for Headlamp, OIDC for Grafana.** Grafana has its own users, sessions and roles,
-  so it does its own OIDC and the groups in `auth/users.yaml` decide its admin. Headlamp
-  shows the cluster as its own service account no matter who is looking, so an ID token
-  changes nothing about what it can do - the only thing worth knowing is that a signed-in
-  person is asking, which is what `extAuth` answers. It also keeps the secret count at one.
+- **extAuth, not OIDC.** Authelia is asked on every request whether the browser carries a
+  session, in the protocol Envoy's ext_authz speaks, and the browser is sent to Authelia when
+  the answer is no. Nothing here needs to know *who* is asking: Headlamp shows the cluster as
+  its own read-only service account whoever is looking, and Grafana has its own users and
+  roles. So there is no client, no redirect URI, no client secret and no signing key, and one
+  password less that can leak. The price is that Grafana asks for its own password too.
+  OIDC would also have needed Authelia to derive its issuer from each request, which it
+  cannot do for a token call made inside the cluster: the session cookie rules only match the
+  public URL, so Grafana's server-to-server call failed with `no session cookie configuration
+  matches url 'https://10.96.34.183:9091'` however the request was written.
 
 ## Worth knowing
 
@@ -228,9 +232,8 @@ and deleting a claim deletes the data.
 - The Authelia chart's values schema predates 4.39 and cannot express the session cookie
   field 4.39 requires, so `auth/configuration.yaml` is Authelia's own file, mounted in as a
   ConfigMap, and the chart is used only to install and upgrade. Its secret keys arrive as
-  files: Authelia reads a `*_FILE` variable in place of the matching config key, and the
-  OIDC signing key is read by the config's own `template` filter. So no private key is in
-  git, and the ConfigMap could be.
+  files: Authelia reads a `*_FILE` variable in place of the matching config key, so the
+  ConfigMap itself only ever holds digests.
 - Loki and Authelia each keep one file on one node, so both select `homelab.internal/stateful`
   and both recreate rather than roll: a second pod could not open the same volume.
 - cert-manager and MetalLB ship their CRDs as chart templates, so bumping those releases
@@ -273,5 +276,7 @@ actionlint 1.7.12 · sops 3.13.3 and age 1.3.2 on the host
 
 ## Later
 
-ACME DNS01, alertmanager receivers, volume backups, and a look at whether the OIDC consent
-records in Authelia's sqlite are worth an `implicit` consent mode for Grafana.
+ACME DNS01, alertmanager receivers, volume backups. Grafana's second password is fixable
+without an identity provider - `extAuth.http.headersToBackend` can copy Authelia's answer
+into the upstream request, which is what Grafana's `auth.proxy` reads - but that trusts a
+header instead of a signature and only pays off once more than one app wants it.

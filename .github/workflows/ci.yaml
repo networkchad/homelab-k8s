@@ -46,18 +46,12 @@ jobs:
           python3 - <<'PY'
           import glob, sys, yaml
 
-          # auth/configuration.yaml is Authelia's own config: the jwks line is an Authelia
-          # template expression, so it is only YAML once that template has run. The authelia
-          # job hands the same file to the real binary, which is the check that counts.
-          TEMPLATED = {"auth/configuration.yaml"}
-
           plain, unreadable = [], []
           for path in sorted(glob.glob("**/*.yaml", recursive=True)):
               try:
                   docs = list(yaml.safe_load_all(open(path)))
               except yaml.YAMLError:
-                  if path not in TEMPLATED:
-                      unreadable.append(path)
+                  unreadable.append(path)
                   continue
               for doc in docs:
                   if not isinstance(doc, dict) or doc.get("kind") != "Secret":
@@ -140,7 +134,7 @@ jobs:
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -schema-location default "$RUNNER_TEMP/all.yaml"
 
-  # The IdP config is the one file here no schema describes: the chart that installs it
+  # Authelia's config is the one file here no schema describes: the chart that installs it
   # cannot express what Authelia 4.39 needs, so the file is Authelia's own and is checked
   # by Authelia itself. The key material is throwaway - validate only ever reads it.
   authelia:
@@ -151,18 +145,15 @@ jobs:
         run: |
           d="$RUNNER_TEMP/authelia"
           mkdir -p "$d/secrets" "$d/users" "$d/config"
-          for key in session.encryption.key storage.encryption.key identity_providers.oidc.hmac.key; do
+          for key in session.encryption.key storage.encryption.key; do
             head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32 >"$d/secrets/$key"
           done
-          openssl genrsa -out "$d/secrets/oidc.signing.key" 2048 2>/dev/null
           cp auth/users.yaml "$d/users/users.yaml"
           docker run --rm \
             -v "$d/secrets:/secrets:ro" -v "$d/users:/users:ro" -v "$d/config:/config" \
             -v "$PWD/auth/configuration.yaml:/configuration.yaml:ro" \
             -e X_AUTHELIA_CONFIG=/configuration.yaml \
-            -e X_AUTHELIA_CONFIG_FILTERS=template \
             -e AUTHELIA_SESSION_SECRET_FILE=/secrets/session.encryption.key \
             -e AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE=/secrets/storage.encryption.key \
-            -e AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE=/secrets/identity_providers.oidc.hmac.key \
             --entrypoint authelia "authelia/authelia:$AUTHELIA_VERSION" \
             config validate
