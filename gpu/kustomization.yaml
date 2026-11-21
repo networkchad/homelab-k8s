@@ -8,6 +8,10 @@ resources:
 # for the same panels, and prune only takes the old one back on the next sync.
 configMapGenerator:
   - name: grafana-dashboard-gpu
+    # A generated ConfigMap arrives with no namespace of its own, and nothing adds one here, so
+    # without this line the dashboard lands in default/ - findable by the sidecar, which watches
+    # every namespace, but owned by nothing in particular.
+    namespace: gpu
     files:
       - grafana-dashboard.json
     options:
