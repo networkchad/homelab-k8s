@@ -105,10 +105,13 @@ cluster`, and deleting a claim deletes the data.
 ## Worth knowing
 
 - Public repo, so no secrets in git: CI fails on a plaintext `kind: Secret`. The Grafana
-  admin password regenerates on every HelmRelease upgrade until `grafana.existingSecret`
-  points at something real.
-- Helm installs CRDs once and never upgrades them. Bump cert-manager's, Envoy Gateway's
-  (Gateway API bundle v1.6.1) and kube-prometheus-stack's by hand with the chart.
+  admin password is chart-generated and lives in a Secret; once a secrets backend exists,
+  point `grafana.existingSecret` at something real rather than reading it back out.
+- cert-manager and MetalLB ship their CRDs as chart templates, so bumping those releases
+  upgrades the CRDs. Envoy Gateway (with the Gateway API v1.6.1 bundle) and
+  kube-prometheus-stack put theirs in `crds/`, which Helm creates once and never updates:
+  apply the new ones by hand when you bump those, or set
+  `crds.upgradeJob.enabled: true` on kube-prometheus-stack (preview).
 - Gateway listeners carry no hostname on purpose: a listener hostname matches only that
   exact host, so `homelab.internal` would never serve `grafana.homelab.internal`. Each
   route names its own hosts and may live in any namespace labelled
