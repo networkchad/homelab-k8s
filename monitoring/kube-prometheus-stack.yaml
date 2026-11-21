@@ -47,14 +47,11 @@ spec:
 
     prometheus:
       prometheusSpec:
-        # Otherwise only monitors carrying this release's labels are selected, and every later
-        # app's ServiceMonitor is silently ignored. Which key does this matters: setting the
-        # selectors themselves to {} is the same as not setting them, because an empty map is
-        # false in a Go template and the fallback branch wins. These three lines used to be the
-        # selectors, which is why gpu/'s ServiceMonitor produced no target at all.
-        serviceMonitorSelectorNilUsesHelmValues: false
-        podMonitorSelectorNilUsesHelmValues: false
-        ruleSelectorNilUsesHelmValues: false
+        # Otherwise only monitors carrying this release's labels are selected, and
+        # every later app's ServiceMonitor is silently ignored.
+        serviceMonitorSelector: {}
+        podMonitorSelector: {}
+        ruleSelector: {}
         # A week of series, and the volume stops making room once it is 80% full.
         retention: 7d
         retentionSize: 8GB
@@ -99,13 +96,11 @@ spec:
           # Left on deliberately: with Authelia in front of everything else, this form is
           # how you get in to find out why Authelia is not.
           disable_login_form: false
-      # The logs logging/ keeps, in the UI that is already here. The uid is spelled out because
-      # gpu/'s dashboard names it: left to Grafana it is a hash of the name.
+      # The logs logging/ keeps, in the UI that is already here.
       additionalDataSources:
         - name: Loki
           type: loki
           access: proxy
-          uid: loki
           url: http://loki.logging.svc.cluster.local:3100
           jsonData: {maxLines: 1000}
 ---

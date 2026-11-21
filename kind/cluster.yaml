@@ -24,15 +24,5 @@ nodes:
       # its PV is pinned there. See README.
       homelab.internal/stateful: "true"
 
-  # The GPU lives here. See gpu/ and README for what arrives with it.
   - role: worker
     image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
-    labels:
-      homelab.internal/gpu: "true"
-    extraMounts:
-      # Nothing injects the driver into a container here - there is no runtime to do it and
-      # CDI gets no further than this README - so what a runtime would have mounted is mounted
-      # by hand for the whole node: the driver, and the store its files are symlinks into. A
-      # pod still has to ask for both, because that is what makes them read-only; see gpu/.
-      - {hostPath: /nix/store, containerPath: /nix/store, readOnly: true}
-      - {hostPath: /run/opengl-driver, containerPath: /run/opengl-driver, readOnly: true}
