@@ -15,6 +15,8 @@ concurrency:
 env:
   # Keep in step with the bootstrap URL in README.md.
   FLUX_VERSION: v2.10.1
+  # Keep in step with the chart pin in auth/authelia.yaml.
+  AUTHELIA_VERSION: 4.39.24
 
 jobs:
   style:
@@ -34,29 +36,133 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # This repo is public: keep credentials out of it.
-      - name: No plaintext Secrets
+      # A public repo: a Secret may be in it only as sops ciphertext, which is what lets a
+      # review see that a key changed without seeing what it changed to. ENC[...] is
+      # therefore the only shape allowed - including inside an encrypted file, where one key
+      # left in plaintext after an edit is exactly the mistake that would otherwise ship.
+      - name: Secrets hold ciphertext only
         run: |
-          if grep -rEn '^[[:space:]]*kind:[[:space:]]*Secret' --include='*.yaml' .; then
-            echo "::error::plaintext Secret in git - use sops, sealed-secrets or external-secrets"
-            exit 1
-          fi
+          pip install --quiet pyyaml==6.0.2
+          python3 - <<'PY'
+          import glob, sys, yaml
 
-      # Builds every area, then validates every document against the schema of the
-      # controller that reads it. flux's released CRD schemas are generated with
-      # additionalProperties: false, so a field flux has never heard of fails here
-      # instead of being dropped at bootstrap. A CRD schema says which fields are
-      # required, not that no others are allowed, so the CRDs-catalog catches less for
-      # the kinds the charts install; core kinds come from kubeconform's registry.
-      - name: Build and validate
+          # auth/configuration.yaml is Authelia's own config: the jwks line is an Authelia
+          # template expression, so it is only YAML once that template has run. The authelia
+          # job hands the same file to the real binary, which is the check that counts.
+          TEMPLATED = {"auth/configuration.yaml"}
+
+          plain, unreadable = [], []
+          for path in sorted(glob.glob("**/*.yaml", recursive=True)):
+              try:
+                  docs = list(yaml.safe_load_all(open(path)))
+              except yaml.YAMLError:
+                  if path not in TEMPLATED:
+                      unreadable.append(path)
+                  continue
+              for doc in docs:
+                  if not isinstance(doc, dict) or doc.get("kind") != "Secret":
+                      continue
+                  name = doc.get("metadata", {}).get("name", "?")
+                  for field in ("data", "stringData"):
+                      for key, value in (doc.get(field) or {}).items():
+                          if value and not str(value).startswith("ENC[AES256_GCM"):
+                              plain.append(f"{path}: {name}/{field}/{key}")
+          for line in unreadable:
+              print(f"{line}: is not yaml")
+          for line in plain:
+              print(line)
+          if unreadable:
+              sys.exit("::error::yaml that will not parse is not a place to hide a Secret")
+          if plain:
+              sys.exit("::error::plaintext in a Secret - sops --encrypt --in-place the file")
+          PY
+
+      # One build, two checks after it: kustomize is slow enough not to want to run it
+      # twice, and both checks are about the same set of documents.
+      - name: Build every area
+        run: |
+          curl -sSfL https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
+            -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
+          for dir in $(find . -name kustomization.yaml -printf '%h\n' | sort -u); do
+            kubectl kustomize "$dir"
+            echo '---'
+          done >"$RUNNER_TEMP/all.yaml"
+          # The sops block is metadata about the ciphertext, and kustomize-controller
+          # removes it as it decrypts, so the object flux applies does not have it.
+          yq eval -i 'del(select(.sops).sops)' "$RUNNER_TEMP/all.yaml"
+          yq -r '.kind' "$RUNNER_TEMP/all.yaml" | sort | uniq -c | sort -rn
+
+      # Every chart in the repo, rendered with the values committed for it: the check that
+      # a value the chart does not have, or not in that shape, is an error rather than
+      # something quietly ignored. Every chart here ships a values schema and all but one
+      # of them refuse unknown keys.
+      - name: Render every release
+        run: |
+          yq -N -r 'select(.kind == "HelmRelease")
+                    | [.metadata.name, .metadata.namespace, .spec.chart.spec.chart,
+                       .spec.chart.spec.version, .spec.chart.spec.sourceRef.name] | join(" ")' \
+            "$RUNNER_TEMP/all.yaml" | grep -v '^[[:space:]]*$' |
+            while read -r name ns chart version repo; do
+              url=$(yq -N -r "select(.kind == \"HelmRepository\" and .metadata.name == \"$repo\")
+                              | .spec.url" "$RUNNER_TEMP/all.yaml" | head -1)
+              case $url in
+                oci://*) ref="$url/$chart" ;;
+                *) helm repo add "$repo" "$url" >/dev/null && ref="$repo/$chart" ;;
+              esac
+              # `select(. != null)` matters: without it every other document in the file
+              # contributes a null, and helm then renders the chart's defaults instead of
+              # the values under review - a check that passes by proving nothing.
+              yq -N -o yaml "select(.kind == \"HelmRelease\" and .metadata.name == \"$name\")
+                             | .spec.values | select(. != null)" "$RUNNER_TEMP/all.yaml" \
+                >"$RUNNER_TEMP/$name.yaml"
+              [ -s "$RUNNER_TEMP/$name.yaml" ] || echo '{}' >"$RUNNER_TEMP/$name.yaml"
+              echo "::group::$name $version"
+              helm template "$name" "$ref" --version "$version" -n "$ns" \
+                -f "$RUNNER_TEMP/$name.yaml" >/dev/null
+              echo "::endgroup::"
+            done
+
+      # Every document against the schema of the controller that reads it. flux's released
+      # CRD schemas are generated with additionalProperties: false, so a field flux has
+      # never heard of fails here instead of being dropped at bootstrap. A CRD schema says
+      # which fields are required, not that no others are allowed, so the CRDs-catalog
+      # catches less for the kinds the charts install - a field it has never seen is pruned
+      # by the API server rather than refused, which is why the releases are rendered too.
+      # Core kinds come from kubeconform's own registry.
+      - name: Validate every document
         run: |
           t="$RUNNER_TEMP/tools"
           mkdir -p "$t"
           curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz -C "$t"
           curl -sSfL "https://github.com/fluxcd/flux2/releases/download/$FLUX_VERSION/crd-schemas.tar.gz" | tar xz -C "$t"
-          find . -name kustomization.yaml -printf '%h\n' | sort -u |
-            while read -r dir; do kubectl kustomize "$dir"; echo '---'; done >"$t/all.yaml"
           "$t/kubeconform" -strict -summary -ignore-missing-schemas \
             -schema-location "$t/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-            -schema-location default "$t/all.yaml"
+            -schema-location default "$RUNNER_TEMP/all.yaml"
+
+  # The IdP config is the one file here no schema describes: the chart that installs it
+  # cannot express what Authelia 4.39 needs, so the file is Authelia's own and is checked
+  # by Authelia itself. The key material is throwaway - validate only ever reads it.
+  authelia:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configuration parses and loads
+        run: |
+          d="$RUNNER_TEMP/authelia"
+          mkdir -p "$d/secrets" "$d/users" "$d/config"
+          for key in session.encryption.key storage.encryption.key identity_providers.oidc.hmac.key; do
+            head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32 >"$d/secrets/$key"
+          done
+          openssl genrsa -out "$d/secrets/oidc.signing.key" 2048 2>/dev/null
+          cp auth/users.yaml "$d/users/users.yaml"
+          docker run --rm \
+            -v "$d/secrets:/secrets:ro" -v "$d/users:/users:ro" -v "$d/config:/config" \
+            -v "$PWD/auth/configuration.yaml:/configuration.yaml:ro" \
+            -e X_AUTHELIA_CONFIG=/configuration.yaml \
+            -e X_AUTHELIA_CONFIG_FILTERS=template \
+            -e AUTHELIA_SESSION_SECRET_FILE=/secrets/session.encryption.key \
+            -e AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE=/secrets/storage.encryption.key \
+            -e AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE=/secrets/identity_providers.oidc.hmac.key \
+            --entrypoint authelia "authelia/authelia:$AUTHELIA_VERSION" \
+            config validate
