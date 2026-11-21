@@ -46,3 +46,29 @@ spec:
   hostnames: [headlamp.homelab.internal]
   rules:
     - backendRefs: [{name: headlamp, port: 80}]
+---
+# Headlamp shows the cluster as its own service account, so who is looking is not
+# something it can use - it only needs to know that someone who has logged in is looking.
+# The Gateway asks Authelia that on every request, in Authelia's Envoy protocol (see the
+# authz endpoint in auth/configuration.yaml), and sends the browser to Authelia itself
+# when the answer is no. No client, no callback, no secret here.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  targetRefs: [{group: gateway.networking.k8s.io, kind: HTTPRoute, name: headlamp}]
+  extAuth:
+    failOpen: false
+    # What Authelia reads to decide: the session, and the URL the session is being spent
+    # on. It works that out from the forwarded protocol and the host, so those two have to
+    # arrive or every check is a denial - the one behaviour of Envoy's side of this call
+    # that no offline check can confirm.
+    headersToExtAuth: [Authorization, Cookie, X-Forwarded-Proto, X-Forwarded-Host]
+    http:
+      backendRefs: [{name: authelia, namespace: authelia, port: 9091}]
+      # path, here, would append the requested path to this one (/api/authz/ext-authz/whatever
+      # is not an endpoint), and the login flow needs the whole original request anyway, which
+      # Authelia reads from the check request rather than from the path.
+      pathOverride: /api/authz/ext-authz
