@@ -24,5 +24,19 @@ nodes:
       # its PV is pinned there. See README.
       homelab.internal/stateful: "true"
 
+  # The GPU lives here. See gpu/ and README for what arrives with it.
   - role: worker
     image: kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+    labels:
+      homelab.internal/gpu: "true"
+    extraMounts:
+      # Docker hands a GPU to a container it is asked about at create time, and kind
+      # asks nothing - no --gpus, no --device, no runtime. So the three things the
+      # nvidia runtime would have used are mounted by hand, and the node's own
+      # containerd does the injecting per pod: it reads the CDI spec the host writes at
+      # boot (enable_cdi is on by default in the containerd that kind ships), and that spec
+      # names the driver by store path - which is why /nix/store has to be here too.
+      # /run/opengl-driver is the same driver under a path that survives a bump.
+      - {hostPath: /nix/store, containerPath: /nix/store, readOnly: true}
+      - {hostPath: /run/opengl-driver, containerPath: /run/opengl-driver, readOnly: true}
+      - {hostPath: /run/cdi, containerPath: /var/run/cdi}
