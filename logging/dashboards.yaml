@@ -1,0 +1,116 @@
+# The Logs dashboard, as a ConfigMap the Grafana sidecar turns into a dashboard: labelled
+# grafana_dashboard: "1", picked up in any namespace, so it is reconciled by flux instead of
+# living in Grafana's volume. The namespace is explicit or the ConfigMap lands in `default`,
+# where the sidecar watching for it in `logging` never sees it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-logs
+  namespace: logging
+  labels:
+    grafana_dashboard: "1"
+data:
+  logs.json: |
+    {
+      "uid": "homelab-logs",
+      "title": "Logs",
+      "tags": ["homelab", "logging"],
+      "timezone": "browser",
+      "editable": true,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "1m",
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "ns",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": { "type": "loki", "uid": "loki" },
+            "query": "label_values(kubernetes_namespace_name)",
+            "definition": "label_values(kubernetes_namespace_name)",
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".+",
+            "sort": 1,
+            "current": { "text": ["All"], "value": ["$__all"] }
+          },
+          {
+            "name": "pattern",
+            "label": "Line filter",
+            "type": "textbox",
+            "query": "(?i)error|fatal|panic|exception",
+            "current": {
+              "text": "(?i)error|fatal|panic|exception",
+              "value": "(?i)error|fatal|panic|exception"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Lines per namespace",
+          "description": "Everything fluent-bit shipped, counted. A crash-looping pod is a spike first.",
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "custom": { "fillOpacity": 8, "showPoints": "never" } },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "range",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "legendFormat": "{{kubernetes_namespace_name}}",
+              "expr": "sum by (kubernetes_namespace_name) (count_over_time({kubernetes_namespace_name=~\"$ns\"} [5m]))"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Lines matching the filter",
+          "description": "One series per stream. $pattern is LogQL and is editable in the bar above the panels.",
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "custom": { "fillOpacity": 8, "showPoints": "never" } },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "range",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "legendFormat": "{{kubernetes_namespace_name}}/{{kubernetes_labels_app_kubernetes_io_name}}",
+              "expr": "count_over_time({kubernetes_namespace_name=~\"$ns\"} |~ `$pattern` [5m])"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "title": "Log lines",
+          "description": "The lines behind those spikes - pod, container and text are searched here, not selected.",
+          "gridPos": { "h": 14, "w": 24, "x": 0, "y": 9 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "logs",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "{kubernetes_namespace_name=~\"$ns\"}"
+            }
+          ]
+        }
+      ]
+    }

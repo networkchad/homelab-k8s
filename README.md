@@ -74,7 +74,7 @@ add CRDs and a loop keeping two copies of every secret in step.
 | `platform/` | metrics-server, cert-manager, MetalLB, Envoy Gateway |
 | `gateway/` | self-signed issuer, MetalLB pool, one `web` Gateway: :80 → :443, wildcard cert |
 | `auth/` | Authelia: the one place a password is typed, and the gate in front of the rest |
-| `logging/` | fluent-bit on every node, Loki holding a week of what it finds |
+| `logging/` | fluent-bit on every node, Loki holding a week of what it finds, read in Grafana |
 | `headlamp/` | cluster dashboard, read-only, behind Authelia |
 | `monitoring/` | prometheus, alertmanager, grafana, and their PVCs |
 

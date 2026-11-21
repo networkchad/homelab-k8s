@@ -127,8 +127,9 @@ spec:
             Keep_Log            Off
             K8s-Logging.Parser  On
             K8s-Logging.Exclude On
-      # The loki output's properties are snake_case in fluent-bit 5; the old TenantID is
-      # refused at startup, which crash-loops the pod before it ever opens 2020.
+      # snake_case properties in fluent-bit 5: the old TenantID is refused at startup, which
+      # crash-loops the pod before it ever opens 2020. No static labels - app=fluent-bit would
+      # ride on every stream in the cluster and read like a selector that is not one.
       outputs: |
         [OUTPUT]
             Name          loki
@@ -136,7 +137,6 @@ spec:
             Host          loki.logging.svc.cluster.local
             Port          3100
             tenant_id     homelab
-            labels        app=fluent-bit
             label_keys    $kubernetes['namespace_name'], $kubernetes['labels']['app.kubernetes.io/name']
             remove_keys   kubernetes
             line_format   json

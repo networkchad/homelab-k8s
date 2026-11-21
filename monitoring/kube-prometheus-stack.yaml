@@ -96,9 +96,11 @@ spec:
           # Left on deliberately: with Authelia in front of everything else, this form is
           # how you get in to find out why Authelia is not.
           disable_login_form: false
-      # The logs logging/ keeps, in the UI that is already here.
+      # The logs logging/ keeps, in the UI that is already here. uid is written down so
+      # logging/dashboards.yaml can name it instead of a generated one.
       additionalDataSources:
         - name: Loki
+          uid: loki
           type: loki
           access: proxy
           url: http://loki.logging.svc.cluster.local:3100
