@@ -10,6 +10,9 @@ spec:
   retryInterval: 2m
   timeout: 15m
   prune: true
+  # Its HTTPRoute is a Gateway API kind and needs the web Gateway to exist.
+  dependsOn:
+    - name: edge
   sourceRef:
     kind: GitRepository
     name: flux-system

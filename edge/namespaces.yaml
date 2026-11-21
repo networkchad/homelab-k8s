@@ -1,0 +1,10 @@
+# web: home of the Gateway and of the data plane Envoy Gateway creates for it.
+# Namespaces labelled homelab.dev/gateway=web may attach Routes to that Gateway.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+  labels:
+    homelab.dev/gateway: web
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

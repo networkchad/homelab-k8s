@@ -54,4 +54,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
-      - run: docker run --rm -v "$PWD:/src:ro" koalaman/shellcheck:stable hack/validate.sh
+      - run: docker run --rm -v "$PWD:/src:ro" -w /src koalaman/shellcheck:stable hack/*.sh

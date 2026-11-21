@@ -7,6 +7,7 @@ GitOps for the `homelab` kind cluster on a NixOS host. Flux owns everything afte
 ```sh
 kind create cluster --config kind/cluster.yaml
 kubectl config use-context kind-homelab
+hack/preflight.sh          # proves the cluster can forward traffic between nodes
 kubectl create -f https://github.com/fluxcd/flux2/releases/download/v2.10.1/install.yaml
 kubectl apply --server-side -f clusters/homelab/flux-system/gotk-sync.yaml
 ```
@@ -22,7 +23,8 @@ bundle - seven controllers, including the image automation ones `flux install` s
 | `system/` | metrics-server — `kubectl top`, HPA |
 | `cert-manager/` | cert-manager, plus a `self-signed` ClusterIssuer |
 | `metallb/` | MetalLB in L2 mode, pool `172.18.0.240-250` on the kind bridge |
-| `network/` | Envoy Gateway, one `web` Gateway: :80 → :443, wildcard cert |
+| `network/` | Envoy Gateway control plane, and the Gateway API CRDs it bundles |
+| `edge/` | the `web` Gateway: :80 → :443, wildcard cert, MetalLB address pool, GatewayClass |
 | `headlamp/` | cluster dashboard, read-only |
 | `monitoring/` | kube-prometheus-stack: prometheus, alertmanager, grafana, PVCs |
 
@@ -34,6 +36,12 @@ set: one version, chosen by the implementation that serves them.
 `clusters/homelab/` holds flux wiring — Kustomizations and extra sources, all in the
 `flux-system` namespace. Every other directory is area content and owns its namespace,
 chart sources and releases. New area = one directory + one file in `clusters/homelab/`.
+
+One rule: a custom resource never shares a directory with the HelmRelease that installs
+its CRD. kustomize-controller dry-runs every document before helm-controller has run, so
+such a document fails on a cold cluster and only lands minutes later on a retry. `edge/`
+exists for that reason - the Certificate, the address pool and the Gateway need CRDs that
+`cert-manager/`, `metallb/` and `network/` install, and get them through `dependsOn`.
 
 ## Checking a change
 
@@ -113,9 +121,10 @@ that directory while the pod is down.
   `crds.upgradeJob.enabled: true` or apply them by hand when bumping the chart. Same for
   the Gateway API bundle Envoy Gateway ships.
 - kindnet is the CNI: routes and masquerade only, no NetworkPolicy enforcement.
-- Host needs docker, cgroup v2 and forwarding accepted:
-  `virtualisation.docker.enable = true;` `boot.kernelModules = [ "br_netfilter" "overlay" ];`
-  `networking.nftables.forwardChainConfig = "accept";`
+- Host needs docker and cgroup v2: `virtualisation.docker.enable = true;` and
+  `boot.kernelModules = [ "br_netfilter" "overlay" ];`. It also has to forward traffic
+  between the node containers, which NixOS's firewall refuses by default - run
+  `hack/preflight.sh` after `kind create` and it names the option to set.
 
 ## Pins
 

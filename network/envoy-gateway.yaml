@@ -1,4 +1,4 @@
-# Control plane only: the data plane arrives with the Gateway in gateway.yaml.
+# Control plane only: the data plane arrives with the Gateway in edge/.
 # The bundled crds/ directory also installs the Gateway API CRDs (bundle v1.6.1)
 # and Envoy Gateway's own. Helm installs those once and never upgrades them, so
 # bump them by hand when you bump this chart.

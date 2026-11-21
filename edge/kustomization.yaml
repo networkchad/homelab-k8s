@@ -1,0 +1,15 @@
+# The edge itself: who signs our certificates, what addresses the data plane can
+# bind, and the one Gateway in front of everything.
+#
+# Rule this area exists to honour: a custom resource may not share a directory
+# with the HelmRelease that installs its CRD. kustomize-controller dry-runs every
+# document before helm-controller has run, so those documents fail on a cold
+# cluster and only land on a later retry. Everything here waits for its CRDs
+# through dependsOn in clusters/homelab instead.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - issuers.yaml
+  - pool.yaml
+  - gateway.yaml

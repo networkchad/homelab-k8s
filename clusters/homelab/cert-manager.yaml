@@ -8,7 +8,7 @@ spec:
   retryInterval: 2m
   timeout: 10m
   prune: true
-  # network/ depends on this: its Certificates need the cert-manager CRDs.
+  # edge/ depends on this: its Certificates need the cert-manager CRDs.
   wait: true
   sourceRef:
     kind: GitRepository

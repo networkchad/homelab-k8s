@@ -9,7 +9,7 @@ spec:
   timeout: 10m
   prune: true
   dependsOn:
-    - name: network
+    - name: edge
   sourceRef:
     kind: GitRepository
     name: flux-system

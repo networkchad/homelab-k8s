@@ -4,4 +4,3 @@ resources:
   - namespaces.yaml
   - sources.yaml
   - metallb.yaml
-  - pool.yaml

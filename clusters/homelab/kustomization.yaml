@@ -6,5 +6,6 @@ resources:
   - cert-manager.yaml
   - metallb.yaml
   - network.yaml
+  - edge.yaml
   - headlamp.yaml
   - monitoring.yaml

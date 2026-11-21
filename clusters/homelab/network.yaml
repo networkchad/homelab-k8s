@@ -8,11 +8,6 @@ spec:
   retryInterval: 2m
   timeout: 15m
   prune: true
-  # The Certificate kind, and an address for the data plane to bind. Gateway API
-  # CRDs come with the chart, so nothing to wait for beyond those two.
-  dependsOn:
-    - name: cert-manager
-    - name: metallb
   sourceRef:
     kind: GitRepository
     name: flux-system
