@@ -2,3 +2,14 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - gpu.yaml
+# monitoring/'s Grafana sidecar takes any ConfigMap it is told to watch and hands the JSON in it
+# to Grafana, so the dashboard arrives with the exporter that serves its metrics. The name is
+# left unhashed on purpose: a name that changes with the content would briefly be two dashboards
+# for the same panels, and prune only takes the old one back on the next sync.
+configMapGenerator:
+  - name: grafana-dashboard-gpu
+    files:
+      - grafana-dashboard.json
+    options:
+      disableNameSuffixHash: true
+      labels: {grafana_dashboard: "1"}

@@ -8,7 +8,12 @@ spec:
   retryInterval: 2m
   timeout: 10m
   prune: true
+  # It waits for monitoring because two of its objects are monitoring's: a ServiceMonitor needs
+  # the CRDs the stack's chart installs, and the dashboard ConfigMap is read by its Grafana.
+  dependsOn:
+    - name: monitoring
   sourceRef: {kind: GitRepository, name: flux-system}
   path: ./gpu
   healthChecks:
     - {apiVersion: apps/v1, kind: DaemonSet, name: nvidia-device-plugin, namespace: gpu}
+    - {apiVersion: apps/v1, kind: DaemonSet, name: nvidia-gpu-exporter, namespace: gpu}

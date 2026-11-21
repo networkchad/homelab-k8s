@@ -1,0 +1,132 @@
+{
+  "uid": "gpu",
+  "title": "GPU",
+  "tags": ["gpu"],
+  "timezone": "utc",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "time": {"from": "now-6h", "to": "now"},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Utilisation",
+      "id": 1,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_utilization_gpu_ratio", "legendFormat": "gpu"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_utilization_memory_ratio", "legendFormat": "memory"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Video memory",
+      "id": 2,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_memory_used_bytes", "legendFormat": "used"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_memory_total_bytes", "legendFormat": "total"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes", "min": 0, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Temperature",
+      "id": 3,
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_temperature_gpu", "legendFormat": "gpu"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_temperature_threshold_slowdown_celsius", "legendFormat": "slowdown at"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "celsius", "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Power",
+      "id": 4,
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_power_draw_watts", "legendFormat": "draw"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_power_max_limit_watts", "legendFormat": "limit"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "watt", "min": 0, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Clocks",
+      "id": 5,
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_clocks_current_sm_clock_hz", "legendFormat": "sm"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_clocks_current_memory_clock_hz", "legendFormat": "memory"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "hertz", "min": 0, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Codec",
+      "id": 6,
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_utilization_encoder_ratio", "legendFormat": "encode"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_utilization_decoder_ratio", "legendFormat": "decode"},
+        {"refId": "C", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_utilization_ofa_ratio", "legendFormat": "ofa"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Why the clocks are down",
+      "id": 7,
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_clocks_event_reasons_gpu_idle", "legendFormat": "idle"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_clocks_event_reasons_sw_power_cap", "legendFormat": "power cap"},
+        {"refId": "C", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_clocks_event_reasons_hw_thermal_slowdown", "legendFormat": "thermal"},
+        {"refId": "D", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "nvidia_smi_compute_apps", "legendFormat": "compute processes"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Card",
+      "id": 8,
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "count by (name, driver_version) (nvidia_smi_gpu_info)", "legendFormat": "{{name}} / driver {{driver_version}}"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "custom": {"fillOpacity": 8}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "logs",
+      "title": "The gpu namespace, from Loki",
+      "id": 9,
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "loki", "uid": "loki"}, "expr": "{kubernetes_namespace_name=\"gpu\"}", "queryType": "range", "maxLines": 200}
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true}
+    }
+  ]
+}

@@ -96,11 +96,13 @@ spec:
           # Left on deliberately: with Authelia in front of everything else, this form is
           # how you get in to find out why Authelia is not.
           disable_login_form: false
-      # The logs logging/ keeps, in the UI that is already here.
+      # The logs logging/ keeps, in the UI that is already here. The uid is spelled out because
+      # gpu/'s dashboard names it: left to Grafana it is a hash of the name.
       additionalDataSources:
         - name: Loki
           type: loki
           access: proxy
+          uid: loki
           url: http://loki.logging.svc.cluster.local:3100
           jsonData: {maxLines: 1000}
 ---

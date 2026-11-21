@@ -62,3 +62,77 @@ spec:
         - {name: device-plugins, hostPath: {path: /var/lib/kubelet/device-plugins}}
         - {name: driver, hostPath: {path: /run/opengl-driver}}
         - {name: nix-store, hostPath: {path: /nix/store}}
+---
+# What the card is doing. Not dcgm-exporter: DCGM is a library the exporter loads alongside
+# NVML, and the NixOS driver package does not ship it, so the choice is made for us here. And
+# not the exec backend either, which shells out to nvidia-smi - that binary is its own store
+# output, and a metrics pod should not have to know a store hash. This one loads
+# libnvidia-ml.so.1 in-process, so it needs what the plugin needs and nothing else.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-gpu-exporter
+  namespace: gpu
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: nvidia-gpu-exporter}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: nvidia-gpu-exporter}
+    spec:
+      # Per-process metrics name the container a process belongs to by reading its cgroup out
+      # of /proc, which means seeing the other containers' processes at all. The card is shared
+      # with the desktop, so this is also the only way to tell which of the two used it.
+      hostPID: true
+      nodeSelector: {homelab.internal/gpu: "true"}
+      containers:
+        - name: exporter
+          image: ghcr.io/utkuozdemir/nvidia_gpu_exporter:2.0.0
+          args:
+            - --collect.compute-apps
+            - --collect.compute-apps-identity
+          env:
+            - {name: LD_LIBRARY_PATH, value: /run/opengl-driver/lib}
+          securityContext:
+            privileged: true
+          ports:
+            - {name: http, containerPort: 9835}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: driver, mountPath: /run/opengl-driver, readOnly: true}
+            - {name: nix-store, mountPath: /nix/store, readOnly: true}
+            - {name: nvidiactl, mountPath: /dev/nvidiactl}
+            - {name: nvidia0, mountPath: /dev/nvidia0}
+            - {name: nvidia-uvm, mountPath: /dev/nvidia-uvm}
+      volumes:
+        - {name: driver, hostPath: {path: /run/opengl-driver}}
+        - {name: nix-store, hostPath: {path: /nix/store}}
+        - {name: nvidiactl, hostPath: {path: /dev/nvidiactl}}
+        - {name: nvidia0, hostPath: {path: /dev/nvidia0}}
+        - {name: nvidia-uvm, hostPath: {path: /dev/nvidia-uvm}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nvidia-gpu-exporter
+  namespace: gpu
+  labels: {app.kubernetes.io/name: nvidia-gpu-exporter}
+spec:
+  selector: {app.kubernetes.io/name: nvidia-gpu-exporter}
+  ports:
+    - {name: http, port: 9835, targetPort: http}
+---
+# monitoring/ sets serviceMonitorSelector to {} - every ServiceMonitor in the cluster is read,
+# which is why this needs no label for Prometheus to find it.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nvidia-gpu-exporter
+  namespace: gpu
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: nvidia-gpu-exporter}
+  endpoints:
+    - {port: http, path: /metrics, interval: 1m}
