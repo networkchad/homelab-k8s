@@ -10,6 +10,11 @@ spec:
   prune: true
   dependsOn:
     - name: gateway
+    - name: auth
+  # The grafana admin password and OIDC secret are sops ciphertext; see README.
+  decryption:
+    provider: sops
+    secretRef: {name: sops-age}
   sourceRef: {kind: GitRepository, name: flux-system}
   path: ./monitoring
   healthChecks:
