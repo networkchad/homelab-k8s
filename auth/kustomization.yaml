@@ -1,5 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# The generated ConfigMaps carry no namespace of their own, and kustomize would emit them
+# namespace-less, which flux cannot apply. This rewrites metadata.namespace only, so the
+# Namespace object and the cross-namespace refs inside the resources keep what they say.
+namespace: authelia
 resources:
   - authelia.yaml
   - secrets.yaml
