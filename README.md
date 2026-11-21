@@ -63,7 +63,7 @@ loop to keep two copies of each secret in step.
 | `logging/` | fluent-bit on every node, Loki holding a week of what it finds |
 | `headlamp/` | cluster dashboard, read-only, behind Authelia |
 | `monitoring/` | prometheus, alertmanager, grafana, and their PVCs |
-| `gpu/` | the host's GPU on one worker, as `nvidia.com/gpu` |
+| `gpu/` | the host's GPU on one worker, as `nvidia.com/gpu`, with its metrics in Grafana |
 
 `clusters/homelab/` is flux wiring; every other directory is an area that owns its
 namespaces, chart sources and releases.
@@ -250,43 +250,57 @@ and deleting a claim deletes the data.
 - kindnet is the CNI: routes and masquerade, no NetworkPolicy enforcement.
 - Envoy Gateway runs the data plane in `envoy-gateway-system`; `web` holds the Gateway, its
   certificate and the :80 redirect, which has to be that listener's only route.
-- **The GPU reaches a pod through CDI, not through docker.** kind cannot ask docker for a
-  GPU - no `--gpus`, no `--device`, no runtime - so the worker that owns one mounts the three
-  things the nvidia runtime would have used (`/nix/store`, `/run/opengl-driver`, the host's
-  `/run/cdi`) and the node's own containerd injects per pod from the spec the host writes at
-  boot. Two consequences. That spec names the driver by **store path**, so a driver bump
-  leaves a running node holding a driver `nix gc` can take away: recreate the GPU worker
-  after one. And containerd applies a CDI spec's mounts, devices and env but **not its
-  hooks**, so nothing updates the pod's linker cache and a CUDA pod carries the path itself:
+- **The GPU reaches a pod by mount, not by runtime.** kind cannot ask docker for a GPU - no
+  `--gpus`, no `--device`, no runtime - and nothing else fills the gap either. The nvidia runtime
+  is what turns `NVIDIA_VISIBLE_DEVICES` into devices and libraries, and it is not here; CDI
+  would, but this kubelet hands containerd no CDI devices at all (a pod annotated
+  `cdi.k8s.io/gpu: nvidia.com/gpu=0` arrives as `Config.CDIDevices: []`), and the device plugin's
+  own CDI mode has to *write* a spec, which it can only do by looking `libcuda.so.<version>` up
+  in `/driver-root/etc/ld.so.cache` - a file NixOS does not have. So the pod carries what the
+  runtime would have injected: privileged is what gets it the host's `/dev/nvidia*`, and the
+  driver is these two mounts plus the path, because `/run/opengl-driver/lib` is symlinks into
+  the store and an empty linker cache is not going to resolve anything for it.
 
   ```yaml
   containers:
     - name: cuda
+      securityContext: {privileged: true}
       resources: {limits: {nvidia.com/gpu: 1}}
       env: [{name: LD_LIBRARY_PATH, value: /run/opengl-driver/lib}]
-      volumeMounts: [{name: driver, mountPath: /run/opengl-driver/lib, readOnly: true}]
-  volumes: [{name: driver, hostPath: {path: /run/opengl-driver/lib}}]
+      volumeMounts:
+        - {name: driver, mountPath: /run/opengl-driver, readOnly: true}
+        - {name: store, mountPath: /nix/store, readOnly: true}
+  volumes:
+    - {name: driver, hostPath: {path: /run/opengl-driver}}
+    - {name: store, hostPath: {path: /nix/store}}
   ```
+
+  The CUDA `vectorAdd` sample passes on `homelab-worker2` with exactly that. Note what is *not*
+  in it: a store hash. The driver's own path is a symlink a driver bump repoints, but a node
+  already running holds the old one, so recreate the GPU worker after a bump and `nix gc` can
+  have what is left.
 
 - One GPU, three privileged nodes: **nothing enforces which one uses it**. Every kind node is
   a privileged container and already sees `/dev/nvidia0`, so `gpu/` makes the GPU schedulable
-  on one node and no more - a privileged pod anywhere can open the device. And it is your
-  desktop's GPU: the 4GiB is shared with X, so what a pod gets is what the compositor leaves.
+  on one node and no more - a privileged pod anywhere can open the device, and the boilerplate
+  above asks for `privileged` because that is the cheapest way to get the device nodes. And it
+  is your desktop's GPU: the 4GiB is shared with X, so what a pod gets is what the compositor
+  leaves. `gpu/` also runs the exporter that reads the same card through NVML - DCGM is not an
+  option, the NixOS driver package does not ship it - whose metrics land in the GPU dashboard
+  that monitoring/'s Grafana sidecar provisions next to them.
 
 ## Not yet proven
 
 Everything above is checked offline - built, rendered, schema-validated, and for Authelia
-started for real in docker, where it signs people in and publishes its keys. Five things
+started for real in docker, where it signs people in and publishes its keys. Four things
 need the cluster and are worth watching on the first boot: Envoy's `extAuth` call to
 Authelia for Headlamp, which is a protocol handshake no offline check can make; fluent-bit
 finding the container logs through kind's mount layout; Grafana mapping `admins` to its own
-admin role from the token's groups; Loki's compactor actually deleting on the seventh
-day rather than on the eighth; and the device plugin counting the GPU at all.
+admin role from the token's groups; and Loki's compactor actually deleting on the seventh
+day rather than on the eighth.
 
-`kubectl -n gpu logs ds/nvidia-device-plugin` is the one to read for that last one, and its
-two likely failures are already known: the plugin needs libnvidia-ml before it can find
-anything, which is what its own `/driver` mount is for, and the host's spec names its devices
-`0` and `all` rather than by UUID, which is what `DEVICE_ID_STRATEGY=index` is for.
+The GPU is off this list: the plugin counting the card, a CUDA sample passing on the GPU
+worker and the exporter answering a scrape are all things this cluster has now done.
 
 The one to read the logs for is the second half of the third: Grafana verifies the ID token
 it gets, including its `iss`, and Authelia derives that from the Host of the request that
@@ -299,8 +313,9 @@ dial, and `validate_id_token: false` is the blunt one.
 flux v2.10.1 · kind node v1.35.0 · Envoy Gateway v1.10.0 (Gateway API v1.6.1) ·
 cert-manager v1.21.3 · MetalLB 0.16.2 · Authelia chart 0.11.22 (Authelia 4.39.24) ·
 kube-prometheus-stack 93.6.0 · Loki 7.7.0 · fluent-bit 0.58.3 · headlamp 0.46.0 ·
-metrics-server 3.14.0 · nvidia-device-plugin v0.20.1 · CI: kubeconform v0.8.0, yq v4.44.3,
-yamllint 1.38.0, actionlint 1.7.12 · sops 3.13.3 and age 1.3.2 on the host
+metrics-server 3.14.0 · nvidia-device-plugin v0.20.1 · nvidia_gpu_exporter 2.0.0 ·
+CI: kubeconform v0.8.0, yq v4.44.3, yamllint 1.38.0, actionlint 1.7.12 ·
+sops 3.13.3 and age 1.3.2 on the host
 
 ## Later
 
